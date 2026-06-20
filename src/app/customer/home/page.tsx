@@ -46,7 +46,6 @@ export default function CustomerHomePage() {
             <Card key={c.id} className="overflow-hidden cursor-pointer transition hover:border-primary">
               <CardContent className="p-4 text-center">
                 <p className="text-sm font-medium">{c.name}</p>
-                <p className="text-xs text-muted-foreground mt-1">{c.description ?? ""}</p>
               </CardContent>
             </Card>
           ))}
