@@ -1,76 +1,75 @@
-name: Deploy Website to Amazon S3
-
-on:
-push:
-branches:
-- main
-
-workflow_dispatch:
-
-permissions:
-id-token: write
-contents: read
-
-concurrency:
-group: deploy-stock-inventory-website
-cancel-in-progress: true
-
-jobs:
-deploy:
-runs-on: ubuntu-latest
-
-steps:
-  - name: Checkout source code
-    uses: actions/checkout@v4
-
-  - name: Setup Node.js
-    uses: actions/setup-node@v4
-    with:
-      node-version: 22
-      cache: npm
-
-  - name: Install dependencies
-    run: |
-      if [ -f package-lock.json ]; then
-        npm ci
-      else
-        npm install
-      fi
-
-  - name: Verify production API URL
-    env:
-      NEXT_PUBLIC_API_BASE_URL: ${{ vars.NEXT_PUBLIC_API_BASE_URL }}
-    run: |
-      echo "Checking API base URL..."
-
-      if [ -z "$NEXT_PUBLIC_API_BASE_URL" ]; then
-        echo "ERROR: NEXT_PUBLIC_API_BASE_URL GitHub variable is empty."
-        exit 1
-      fi
-
-      echo "NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL"
-
-  - name: Build static Next.js website
-    env:
-      NEXT_PUBLIC_API_BASE_URL: ${{ vars.NEXT_PUBLIC_API_BASE_URL }}
-    run: npm run build
-
-  - name: Verify static build output
-    run: |
-      test -d out
-      test -f out/index.html
-
-  - name: Configure AWS credentials through OIDC
-    uses: aws-actions/configure-aws-credentials@v4
-    with:
-      role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
-      aws-region: ${{ vars.AWS_REGION }}
-
-  - name: Upload website to Amazon S3
-    run: |
-      aws s3 sync ./out s3://${{ vars.S3_BUCKET }} --delete
-
-  - name: Deployment completed
-    run: |
-      echo "Website deployed successfully to S3 bucket: ${{ vars.S3_BUCKET }}"
-```
+  name: Deploy Website to Amazon S3
+  
+  on:
+  push:
+  branches:
+  - main
+  
+  workflow_dispatch:
+  
+  permissions:
+  id-token: write
+  contents: read
+  
+  concurrency:
+  group: deploy-stock-inventory-website
+  cancel-in-progress: true
+  
+  jobs:
+  deploy:
+  runs-on: ubuntu-latest
+  
+  steps:
+    - name: Checkout source code
+      uses: actions/checkout@v4
+  
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 22
+        cache: npm
+  
+    - name: Install dependencies
+      run: |
+        if [ -f package-lock.json ]; then
+          npm ci
+        else
+          npm install
+        fi
+  
+    - name: Verify production API URL
+      env:
+        NEXT_PUBLIC_API_BASE_URL: ${{ vars.NEXT_PUBLIC_API_BASE_URL }}
+      run: |
+        echo "Checking API base URL..."
+  
+        if [ -z "$NEXT_PUBLIC_API_BASE_URL" ]; then
+          echo "ERROR: NEXT_PUBLIC_API_BASE_URL GitHub variable is empty."
+          exit 1
+        fi
+  
+        echo "NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL"
+  
+    - name: Build static Next.js website
+      env:
+        NEXT_PUBLIC_API_BASE_URL: ${{ vars.NEXT_PUBLIC_API_BASE_URL }}
+      run: npm run build
+  
+    - name: Verify static build output
+      run: |
+        test -d out
+        test -f out/index.html
+  
+    - name: Configure AWS credentials through OIDC
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ secrets.AWS_DEPLOY_ROLE_ARN }}
+        aws-region: ${{ vars.AWS_REGION }}
+  
+    - name: Upload website to Amazon S3
+      run: |
+        aws s3 sync ./out s3://${{ vars.S3_BUCKET }} --delete
+  
+    - name: Deployment completed
+      run: |
+        echo "Website deployed successfully to S3 bucket: ${{ vars.S3_BUCKET }}"
