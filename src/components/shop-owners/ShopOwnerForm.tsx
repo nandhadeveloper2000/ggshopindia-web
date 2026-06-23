@@ -309,6 +309,15 @@ export function ShopOwnerForm({ mode, ownerId, initialOwner, initialShops }: Sho
       toast.error("Geolocation is not supported by this browser");
       return;
     }
+    // Browsers block geolocation on insecure (HTTP) origins. The S3 website
+    // endpoint is HTTP-only, so guide the user instead of showing a raw error.
+    if (typeof window !== "undefined" && window.isSecureContext === false) {
+      toast.error(
+        "Get Current Location needs a secure (HTTPS) site. This link is HTTP — " +
+          "enter Latitude/Longitude manually or use the shop-name OpenStreetMap search."
+      );
+      return;
+    }
     setLocating(true);
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
@@ -325,7 +334,11 @@ export function ShopOwnerForm({ mode, ownerId, initialOwner, initialShops }: Sho
       },
       (err) => {
         setLocating(false);
-        toast.error(err.message || "Could not get current location");
+        const msg =
+          err.code === err.PERMISSION_DENIED
+            ? "Location permission denied. Allow location for this site in your browser, or enter Latitude/Longitude manually."
+            : err.message || "Could not get current location";
+        toast.error(msg);
       },
       { enableHighAccuracy: true, timeout: 10000 }
     );
