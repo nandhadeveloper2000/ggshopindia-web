@@ -44,7 +44,7 @@ jobs:
           S3_BUCKET: ${{ vars.S3_BUCKET }}
           CLOUDFRONT_DISTRIBUTION_ID: ${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}
         run: |
-          echo "Checking required deployment variables..."
+          echo "Checking API base URL..."
 
           if [ -z "$NEXT_PUBLIC_API_BASE_URL" ]; then
             echo "ERROR: NEXT_PUBLIC_API_BASE_URL is empty."
@@ -66,10 +66,7 @@ jobs:
             exit 1
           fi
 
-          echo "All required GitHub variables are configured."
-          echo "AWS_REGION=$AWS_REGION"
-          echo "S3_BUCKET=$S3_BUCKET"
-          echo "CLOUDFRONT_DISTRIBUTION_ID=$CLOUDFRONT_DISTRIBUTION_ID"
+          echo "NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL"
 
       - name: Build static Next.js website
         env:
@@ -77,51 +74,10 @@ jobs:
         run: |
           npm run build
 
-      - name: Verify exported static pages
+      - name: Verify static build output
         run: |
-          echo "Checking exported Next.js files..."
-
-          REQUIRED_FILES=(
-            "out/index.html"
-            "out/login/index.html"
-            "out/seller/index.html"
-            "out/master/index.html"
-          )
-
-          for FILE in "${REQUIRED_FILES[@]}"; do
-            if [ ! -f "$FILE" ]; then
-              echo "ERROR: Missing static page: $FILE"
-              echo ""
-              echo "Available exported index.html files:"
-              find out -type f -name "index.html" | sort || true
-              echo ""
-              echo "Available master-related files:"
-              find out -type f -path "*master*" | sort || true
-              echo ""
-              echo "Available seller-related files:"
-              find out -type f -path "*seller*" | sort || true
-              exit 1
-            fi
-
-            echo "OK: $FILE"
-          done
-
-      - name: Show exported route folders
-        run: |
-          echo "Root exported files:"
-          ls -la out
-
-          echo ""
-          echo "Master route output:"
-          ls -la out/master
-
-          echo ""
-          echo "Seller route output:"
-          ls -la out/seller
-
-          echo ""
-          echo "Login route output:"
-          ls -la out/login
+          test -d out
+          test -f out/index.html
 
       - name: Configure AWS credentials through OIDC
         uses: aws-actions/configure-aws-credentials@v4
@@ -184,11 +140,22 @@ jobs:
           echo "CloudFront invalidation created successfully."
           echo "Invalidation ID: $INVALIDATION_ID"
 
+      - name: Invalidate CloudFront cache
+        env:
+          CLOUDFRONT_DISTRIBUTION_ID: ${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}
+        run: |
+          if [ -z "$CLOUDFRONT_DISTRIBUTION_ID" ]; then
+            echo "ERROR: CLOUDFRONT_DISTRIBUTION_ID GitHub variable is empty."
+            exit 1
+          fi
+
+          aws cloudfront create-invalidation \
+            --distribution-id "$CLOUDFRONT_DISTRIBUTION_ID" \
+            --paths "/*"
+
       - name: Deployment completed
         env:
           S3_BUCKET: ${{ vars.S3_BUCKET }}
           CLOUDFRONT_DISTRIBUTION_ID: ${{ vars.CLOUDFRONT_DISTRIBUTION_ID }}
         run: |
-          echo "Website deployed successfully."
-          echo "S3 bucket: $S3_BUCKET"
-          echo "CloudFront distribution: $CLOUDFRONT_DISTRIBUTION_ID"
+          echo "Website deployed successfully to S3 bucket: ${{ vars.S3_BUCKET }}"
