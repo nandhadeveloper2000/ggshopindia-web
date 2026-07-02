@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Loader2 } from "lucide-react";
@@ -25,6 +25,18 @@ interface Props {
   close: () => void;
 }
 
+/**
+ * Auto-generate a model number from the brand + model name plus a short random
+ * suffix for uniqueness, e.g. Apple + "Galaxy S26" -> "APP-GALAXY-K7QM".
+ */
+function generateModelNumber(brandName?: string, modelName?: string, suffix?: string): string {
+  const alnum = (s?: string) => (s ?? "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+  const brand = alnum(brandName).slice(0, 3) || "MDL";
+  const name = alnum(modelName).slice(0, 6);
+  const rand = (suffix ?? Math.random().toString(36).slice(2, 6)).toUpperCase();
+  return [brand, name, rand].filter(Boolean).join("-");
+}
+
 export function ModelForm({ record, onSaved, close }: Props) {
   const { data: categories = [] } = useQuery({ queryKey: ["categories"], queryFn: categoriesService.list });
 
@@ -45,6 +57,27 @@ export function ModelForm({ record, onSaved, close }: Props) {
     () => mappings.map((m) => ({ id: String(m.brandId), name: m.brandName ?? String(m.brandId) })),
     [mappings]
   );
+  const selectedBrandName = brandOptions.find((b) => b.id === brandId)?.name;
+
+  // A stable random suffix so the auto-generated code doesn't churn per keystroke.
+  const [autoSuffix, setAutoSuffix] = useState(() => Math.random().toString(36).slice(2, 6).toUpperCase());
+  const [numberTouched, setNumberTouched] = useState(false);
+
+  // Automatically assign the model number once a brand + name are present,
+  // for new models, until the user edits the field themselves.
+  useEffect(() => {
+    if (record || numberTouched) return;
+    if (!brandId || name.trim().length < 2) return;
+    setModelNumber(generateModelNumber(selectedBrandName, name, autoSuffix));
+  }, [record, numberTouched, brandId, name, selectedBrandName, autoSuffix]);
+
+  const assignCode = () => {
+    const suffix = Math.random().toString(36).slice(2, 6).toUpperCase();
+    setAutoSuffix(suffix);
+    setNumberTouched(false);
+    setModelNumber(generateModelNumber(selectedBrandName, name, suffix));
+    toast.success("Model number assigned");
+  };
 
   const save = async () => {
     if (!categoryId) return toast.error("Select a category");
@@ -130,8 +163,24 @@ export function ModelForm({ record, onSaved, close }: Props) {
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Galaxy S26" />
         </div>
         <div className="space-y-1.5">
-          <Label>Model Number</Label>
-          <Input value={modelNumber} onChange={(e) => setModelNumber(e.target.value)} placeholder="e.g. SM-S926B" />
+          <div className="flex items-center justify-between">
+            <Label>Model Number</Label>
+            <button
+              type="button"
+              onClick={assignCode}
+              className="text-xs font-medium text-primary hover:underline"
+            >
+              Assign Code
+            </button>
+          </div>
+          <Input
+            value={modelNumber}
+            onChange={(e) => {
+              setModelNumber(e.target.value);
+              setNumberTouched(true);
+            }}
+            placeholder="e.g. SM-S926B"
+          />
         </div>
       </div>
 

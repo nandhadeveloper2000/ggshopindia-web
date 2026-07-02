@@ -470,14 +470,14 @@ function TemplateBuilder({ initial, onBack }: { initial: EditTarget | null; onBa
 
   const handleSave = async () => {
     if (!allSelected) return;
+    setSaving(true);
     try {
-      setSaving(true);
       await attributeTemplatesService.save({ categoryId, subCategoryId, productTypeId, sections, active: true });
       qc.invalidateQueries({ queryKey: ["attribute-templates"] });
       toast.success("Template saved");
+      onBack(); // return to the list after saving
     } catch {
       toast.error("Could not save template");
-    } finally {
       setSaving(false);
     }
   };
@@ -522,13 +522,26 @@ function TemplateBuilder({ initial, onBack }: { initial: EditTarget | null; onBa
           </div>
         </div>
         {allSelected && (
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
               {totals.sections} Sections
             </span>
             <span className="rounded-full bg-primary/10 px-3 py-1 text-xs font-medium text-primary">
               {totals.fields} Fields
             </span>
+            <Button variant="outline" size="sm" onClick={handleDownload}>
+              <Download className="mr-1 h-4 w-4" /> Download Workbook
+            </Button>
+            <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()}>
+              <Upload className="mr-1 h-4 w-4" /> Upload Workbook
+            </Button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              className="hidden"
+              onChange={(e) => handleUpload(e.target.files?.[0])}
+            />
             <Button onClick={handleSave} disabled={saving}>
               {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
               Save Template
@@ -774,24 +787,9 @@ function TemplateBuilder({ initial, onBack }: { initial: EditTarget | null; onBa
               title="Dynamic Field Builder"
               subtitle={`${section.headingName} / ${group.groupName} — ${group.fields.length} field(s).`}
               actions={
-                <div className="flex flex-wrap items-center gap-2">
-                  <Button variant="outline" size="sm" onClick={handleDownload}>
-                    <Download className="mr-1 h-4 w-4" /> Download Workbook
-                  </Button>
-                  <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()}>
-                    <Upload className="mr-1 h-4 w-4" /> Upload Workbook
-                  </Button>
-                  <input
-                    ref={fileRef}
-                    type="file"
-                    accept=".xlsx,.xls,.csv"
-                    className="hidden"
-                    onChange={(e) => handleUpload(e.target.files?.[0])}
-                  />
-                  <Button size="sm" onClick={addField}>
-                    <Plus className="mr-1 h-4 w-4" /> Add Field
-                  </Button>
-                </div>
+                <Button size="sm" onClick={addField}>
+                  <Plus className="mr-1 h-4 w-4" /> Add Field
+                </Button>
               }
             >
               <div className="overflow-x-auto rounded-md border">
