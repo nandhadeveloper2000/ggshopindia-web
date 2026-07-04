@@ -15,10 +15,12 @@ interface Props {
   nav: NavItem[];
   allowedRoles: UserRoleType[] | string[];
   title?: string;
+  /** Optional content pinned to the top of the sidebar (e.g. a location switcher). */
+  sidebarTop?: ReactNode;
   children: ReactNode;
 }
 
-export function RoleLayout({ nav, allowedRoles, title, children }: Props) {
+export function RoleLayout({ nav, allowedRoles, title, sidebarTop, children }: Props) {
   const router = useRouter();
   const { user, isAuthenticated, hasHydrated } = useAuthStore();
   const [ready, setReady] = useState(false);
@@ -46,8 +48,8 @@ export function RoleLayout({ nav, allowedRoles, title, children }: Props) {
 
   return (
     <div className="flex min-h-screen w-full bg-muted/30">
-      <AppSidebar items={nav} />
-      <MobileSidebar items={nav} />
+      <AppSidebar items={nav} topSlot={sidebarTop} />
+      <MobileSidebar items={nav} topSlot={sidebarTop} />
       <div className="flex flex-1 flex-col min-w-0">
         <AppTopbar title={title} />
         <main className="flex-1 px-4 py-4 lg:px-6 lg:py-6">

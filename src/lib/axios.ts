@@ -71,6 +71,13 @@ apiClient.interceptors.response.use(
       return Promise.reject(error);
     }
 
+    // Customer demo sessions carry a synthetic token the backend rejects. Never
+    // tear such a session down on a 401 — let the caller fall back to empty data
+    // so the demo shopper keeps browsing instead of being bounced to /login.
+    if (localStorage.getItem(STORAGE_KEYS.demo) === "1") {
+      return Promise.reject(error);
+    }
+
     const original = error.config as (AxiosRequestConfig & { _retry?: boolean }) | undefined;
     const path = window.location.pathname.replace(/\/+$/, "") || "/";
     // Public pages (storefront home, login portals, the 403 page) must never be

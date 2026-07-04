@@ -45,21 +45,16 @@ import {
   type TemplateSection,
 } from "@/types/attribute-template.types";
 
-const SUGGESTED_SECTIONS = ["Product Details", "Images", "Variations", "Offer", "Safety & Compliance"];
-const SUGGESTED_GROUPS = [
-  "Basic Info",
-  "Display",
-  "Memory",
-  "Camera",
-  "Battery",
-  "Connectivity",
-  "Network",
-  "Software",
-  "Storage",
-  "Processor",
-  "Security",
-];
+const SUGGESTED_SECTIONS = ["Product Details", "Images", "Variations", "Warranty", "Manufacturer Info"];
 
+/** Default section list a brand-new product type starts with (before any are saved). */
+const buildDefaultSections = (): TemplateSection[] =>
+  SUGGESTED_SECTIONS.map((name, i) => ({
+    headingName: name,
+    active: true,
+    sortOrder: i + 1,
+    groups: [],
+  }));
 const slug = (s: string) => (s || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
 const clone = (s: TemplateSection[]) => JSON.parse(JSON.stringify(s)) as TemplateSection[];
 
@@ -70,13 +65,23 @@ interface EditTarget {
 }
 
 export default function ProductAttributesPage() {
-  const [mode, setMode] = useState<"list" | "builder">("list");
+  const [mode, setMode] = useState<"list" | "builder" | "view">("list");
   const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
 
-  if (mode === "builder") {
+  const openTarget = (t: AttributeTemplate, next: "builder" | "view") => {
+    setEditTarget({
+      categoryId: String(t.categoryId),
+      subCategoryId: String(t.subCategoryId),
+      productTypeId: String(t.productTypeId),
+    });
+    setMode(next);
+  };
+
+  if (mode === "builder" || mode === "view") {
     return (
       <TemplateBuilder
         initial={editTarget}
+        readOnly={mode === "view"}
         onBack={() => {
           setEditTarget(null);
           setMode("list");
@@ -91,14 +96,8 @@ export default function ProductAttributesPage() {
         setEditTarget(null);
         setMode("builder");
       }}
-      onEdit={(t) => {
-        setEditTarget({
-          categoryId: String(t.categoryId),
-          subCategoryId: String(t.subCategoryId),
-          productTypeId: String(t.productTypeId),
-        });
-        setMode("builder");
-      }}
+      onView={(t) => openTarget(t, "view")}
+      onEdit={(t) => openTarget(t, "builder")}
     />
   );
 }
@@ -121,9 +120,11 @@ function haystack(t: AttributeTemplate): string {
 
 function TemplateList({
   onCreate,
+  onView,
   onEdit,
 }: {
   onCreate: () => void;
+  onView: (t: AttributeTemplate) => void;
   onEdit: (t: AttributeTemplate) => void;
 }) {
   const qc = useQueryClient();
@@ -275,7 +276,7 @@ function TemplateList({
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center justify-end gap-1">
-                    <IconBtn label="View" onClick={() => onEdit(t)}>
+                    <IconBtn label="View" onClick={() => onView(t)}>
                       <Eye className="h-4 w-4" />
                     </IconBtn>
                     <IconBtn label="Edit" onClick={() => onEdit(t)}>
@@ -341,7 +342,15 @@ function IconBtn({
 /* BUILDER                                                             */
 /* ------------------------------------------------------------------ */
 
-function TemplateBuilder({ initial, onBack }: { initial: EditTarget | null; onBack: () => void }) {
+function TemplateBuilder({
+  initial,
+  onBack,
+  readOnly = false,
+}: {
+  initial: EditTarget | null;
+  onBack: () => void;
+  readOnly?: boolean;
+}) {
   const qc = useQueryClient();
   const { data: categories = [] } = useQuery({ queryKey: ["categories"], queryFn: categoriesService.list });
   const { data: subCategories = [] } = useQuery({ queryKey: ["sub-categories"], queryFn: subCategoriesService.list });
@@ -381,8 +390,12 @@ function TemplateBuilder({ initial, onBack }: { initial: EditTarget | null; onBa
       .getBySelection(categoryId, subCategoryId, productTypeId)
       .then((tpl) => {
         if (cancelled) return;
-        setSections(tpl?.sections ?? []);
-        setActiveSection((tpl?.sections?.length ?? 0) > 0 ? 0 : null);
+        // New product type (no saved template) → start with the default sections.
+        // In read-only View mode we never inject defaults — show only what exists.
+        const loaded = tpl?.sections ?? [];
+        const next = loaded.length > 0 ? loaded : readOnly ? [] : buildDefaultSections();
+        setSections(next);
+        setActiveSection(next.length > 0 ? 0 : null);
         setActiveGroup(null);
       })
       .catch(() => {
@@ -394,7 +407,7 @@ function TemplateBuilder({ initial, onBack }: { initial: EditTarget | null; onBa
     return () => {
       cancelled = true;
     };
-  }, [allSelected, categoryId, subCategoryId, productTypeId]);
+  }, [allSelected, categoryId, subCategoryId, productTypeId, readOnly]);
 
   const totals = useMemo(() => {
     let groups = 0;
@@ -515,9 +528,13 @@ function TemplateBuilder({ initial, onBack }: { initial: EditTarget | null; onBa
             <ArrowLeft className="h-4 w-4" />
           </Button>
           <div>
-            <h1 className="text-xl font-semibold">{initial ? "Edit" : "Create"} Product Type Fields</h1>
+            <h1 className="text-xl font-semibold">
+              {readOnly ? "View" : initial ? "Edit" : "Create"} Product Type Fields
+            </h1>
             <p className="text-sm text-muted-foreground">
-              Build the dynamic field template for a category, sub-category and product type.
+              {readOnly
+                ? "Read-only view of the dynamic field template. Use Edit from the list to make changes."
+                : "Build the dynamic field template for a category, sub-category and product type."}
             </p>
           </div>
         </div>
@@ -532,20 +549,24 @@ function TemplateBuilder({ initial, onBack }: { initial: EditTarget | null; onBa
             <Button variant="outline" size="sm" onClick={handleDownload}>
               <Download className="mr-1 h-4 w-4" /> Download Workbook
             </Button>
-            <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()}>
-              <Upload className="mr-1 h-4 w-4" /> Upload Workbook
-            </Button>
-            <input
-              ref={fileRef}
-              type="file"
-              accept=".xlsx,.xls,.csv"
-              className="hidden"
-              onChange={(e) => handleUpload(e.target.files?.[0])}
-            />
-            <Button onClick={handleSave} disabled={saving}>
-              {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
-              Save Template
-            </Button>
+            {!readOnly && (
+              <>
+                <Button variant="outline" size="sm" onClick={() => fileRef.current?.click()}>
+                  <Upload className="mr-1 h-4 w-4" /> Upload Workbook
+                </Button>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  className="hidden"
+                  onChange={(e) => handleUpload(e.target.files?.[0])}
+                />
+                <Button onClick={handleSave} disabled={saving}>
+                  {saving ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                  Save Template
+                </Button>
+              </>
+            )}
           </div>
         )}
       </div>
@@ -560,6 +581,7 @@ function TemplateBuilder({ initial, onBack }: { initial: EditTarget | null; onBa
               setSubCategoryId("");
               setProductTypeId("");
             }}
+            disabled={readOnly}
           >
             <SelectTrigger>
               <SelectValue placeholder="Select category" />
@@ -581,7 +603,7 @@ function TemplateBuilder({ initial, onBack }: { initial: EditTarget | null; onBa
               setSubCategoryId(v);
               setProductTypeId("");
             }}
-            disabled={!categoryId}
+            disabled={readOnly || !categoryId}
           >
             <SelectTrigger>
               <SelectValue placeholder={categoryId ? "Select subcategory" : "Select category first"} />
@@ -597,7 +619,7 @@ function TemplateBuilder({ initial, onBack }: { initial: EditTarget | null; onBa
         </div>
         <div className="space-y-1.5">
           <Label className="text-xs uppercase text-muted-foreground">Product Type</Label>
-          <Select value={productTypeId} onValueChange={setProductTypeId} disabled={!subCategoryId}>
+          <Select value={productTypeId} onValueChange={setProductTypeId} disabled={readOnly || !subCategoryId}>
             <SelectTrigger>
               <SelectValue placeholder={subCategoryId ? "Select product type" : "Select subcategory first"} />
             </SelectTrigger>
@@ -627,13 +649,15 @@ function TemplateBuilder({ initial, onBack }: { initial: EditTarget | null; onBa
       {allSelected && !loading && (
         <>
           <StepCard step="Step 1" title="Sections / Tabs" subtitle="Select the tab first, then continue with groups and fields.">
-            <AddRow
-              placeholder="Enter section name"
-              onAdd={addSection}
-              suggestions={SUGGESTED_SECTIONS}
-              onAddSuggestion={addSection}
-              suggestionLabel="Suggested Sections"
-            />
+            {!readOnly && (
+              <AddRow
+                placeholder="Enter section name"
+                onAdd={addSection}
+                suggestions={SUGGESTED_SECTIONS}
+                onAddSuggestion={addSection}
+                suggestionLabel="Suggested Sections"
+              />
+            )}
             <div className="mt-3 overflow-x-auto rounded-md border">
               <table className="w-full text-sm">
                 <thead className="bg-muted/50 text-xs uppercase text-muted-foreground">
@@ -666,6 +690,7 @@ function TemplateBuilder({ initial, onBack }: { initial: EditTarget | null; onBa
                         <td className="px-3 py-2 text-center">
                           <Checkbox
                             checked={s.active !== false}
+                            disabled={readOnly}
                             onCheckedChange={(v) => mutate((d) => (d[i].active = Boolean(v)))}
                           />
                         </td>
@@ -681,15 +706,17 @@ function TemplateBuilder({ initial, onBack }: { initial: EditTarget | null; onBa
                             >
                               {selected ? "Selected" : "Open"}
                             </Button>
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="text-destructive"
-                              onClick={() => removeSection(i)}
-                              aria-label="Delete section"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
+                            {!readOnly && (
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="text-destructive"
+                                onClick={() => removeSection(i)}
+                                aria-label="Delete section"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -706,18 +733,7 @@ function TemplateBuilder({ initial, onBack }: { initial: EditTarget | null; onBa
               title="Groups For Selected Section"
               subtitle={`Tab ${activeSection! + 1}: ${section.headingName}. Add groups, then open one to manage its fields.`}
             >
-              <AddRow
-                placeholder="Enter group name"
-                onAdd={addGroup}
-                suggestions={SUGGESTED_GROUPS}
-                onAddSuggestion={addGroup}
-                suggestionLabel="Suggested Groups"
-                extraAction={
-                  <Button variant="outline" size="sm" onClick={() => SUGGESTED_GROUPS.forEach((g) => addGroup(g))}>
-                    Add All Suggested
-                  </Button>
-                }
-              />
+              {!readOnly && <AddRow placeholder="Enter group name" onAdd={addGroup} />}
               <div className="mt-3 overflow-x-auto rounded-md border">
                 <table className="w-full text-sm">
                   <thead className="bg-muted/50 text-xs uppercase text-muted-foreground">
@@ -745,6 +761,7 @@ function TemplateBuilder({ initial, onBack }: { initial: EditTarget | null; onBa
                           <td className="px-3 py-2">
                             <Input
                               value={g.groupName}
+                              disabled={readOnly}
                               onChange={(e) => mutate((d) => (d[activeSection!].groups[gi].groupName = e.target.value))}
                               className="h-8"
                             />
@@ -753,6 +770,7 @@ function TemplateBuilder({ initial, onBack }: { initial: EditTarget | null; onBa
                           <td className="px-3 py-2 text-center">
                             <Checkbox
                               checked={g.active !== false}
+                              disabled={readOnly}
                               onCheckedChange={(v) => mutate((d) => (d[activeSection!].groups[gi].active = Boolean(v)))}
                             />
                           </td>
@@ -761,15 +779,17 @@ function TemplateBuilder({ initial, onBack }: { initial: EditTarget | null; onBa
                               <Button size="sm" variant={selected ? "default" : "outline"} onClick={() => setActiveGroup(gi)}>
                                 {selected ? "Selected" : "Open"}
                               </Button>
-                              <Button
-                                size="icon"
-                                variant="ghost"
-                                className="text-destructive"
-                                onClick={() => removeGroup(gi)}
-                                aria-label="Delete group"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
+                              {!readOnly && (
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="text-destructive"
+                                  onClick={() => removeGroup(gi)}
+                                  aria-label="Delete group"
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -787,9 +807,11 @@ function TemplateBuilder({ initial, onBack }: { initial: EditTarget | null; onBa
               title="Dynamic Field Builder"
               subtitle={`${section.headingName} / ${group.groupName} — ${group.fields.length} field(s).`}
               actions={
-                <Button size="sm" onClick={addField}>
-                  <Plus className="mr-1 h-4 w-4" /> Add Field
-                </Button>
+                readOnly ? undefined : (
+                  <Button size="sm" onClick={addField}>
+                    <Plus className="mr-1 h-4 w-4" /> Add Field
+                  </Button>
+                )
               }
             >
               <div className="overflow-x-auto rounded-md border">
@@ -825,6 +847,7 @@ function TemplateBuilder({ initial, onBack }: { initial: EditTarget | null; onBa
                           <td className="px-2 py-2">
                             <Input
                               value={f.label}
+                              disabled={readOnly}
                               className="h-8 min-w-40"
                               onChange={(e) => {
                                 const label = e.target.value;
@@ -833,13 +856,14 @@ function TemplateBuilder({ initial, onBack }: { initial: EditTarget | null; onBa
                             />
                           </td>
                           <td className="px-2 py-2">
-                            <Input value={f.key} className="h-8 min-w-32" onChange={(e) => updateField(fi, { key: e.target.value })} />
+                            <Input value={f.key} disabled={readOnly} className="h-8 min-w-32" onChange={(e) => updateField(fi, { key: e.target.value })} />
                           </td>
                           <td className="px-2 py-2">
                             <select
                               value={f.inputType}
+                              disabled={readOnly}
                               onChange={(e) => updateField(fi, { inputType: e.target.value })}
-                              className="h-8 rounded-md border bg-background px-2 text-sm"
+                              className="h-8 rounded-md border bg-background px-2 text-sm disabled:opacity-60"
                             >
                               {FIELD_INPUT_TYPES.map((t) => (
                                 <option key={t} value={t}>
@@ -851,6 +875,7 @@ function TemplateBuilder({ initial, onBack }: { initial: EditTarget | null; onBa
                           <td className="px-2 py-2">
                             <Input
                               value={f.placeholder ?? ""}
+                              disabled={readOnly}
                               className="h-8 min-w-32"
                               onChange={(e) => updateField(fi, { placeholder: e.target.value })}
                             />
@@ -858,7 +883,7 @@ function TemplateBuilder({ initial, onBack }: { initial: EditTarget | null; onBa
                           <td className="px-2 py-2">
                             <Input
                               value={(f.options ?? []).join(", ")}
-                              disabled={!usesOptions}
+                              disabled={readOnly || !usesOptions}
                               placeholder={usesOptions ? "a, b, c" : "—"}
                               className="h-8 min-w-40"
                               onChange={(e) =>
@@ -871,29 +896,32 @@ function TemplateBuilder({ initial, onBack }: { initial: EditTarget | null; onBa
                           <td className="px-2 py-2">
                             <Input
                               value={f.unit ?? ""}
+                              disabled={readOnly}
                               className="h-8 min-w-20"
                               onChange={(e) => updateField(fi, { unit: e.target.value, hasUnit: e.target.value !== "" })}
                             />
                           </td>
                           <td className="px-2 py-2 text-center">
-                            <Checkbox checked={!!f.required} onCheckedChange={(v) => updateField(fi, { required: Boolean(v) })} />
+                            <Checkbox checked={!!f.required} disabled={readOnly} onCheckedChange={(v) => updateField(fi, { required: Boolean(v) })} />
                           </td>
                           <td className="px-2 py-2 text-center">
-                            <Checkbox checked={!!f.addMore} onCheckedChange={(v) => updateField(fi, { addMore: Boolean(v) })} />
+                            <Checkbox checked={!!f.addMore} disabled={readOnly} onCheckedChange={(v) => updateField(fi, { addMore: Boolean(v) })} />
                           </td>
                           <td className="px-2 py-2 text-center">
-                            <Checkbox checked={f.active !== false} onCheckedChange={(v) => updateField(fi, { active: Boolean(v) })} />
+                            <Checkbox checked={f.active !== false} disabled={readOnly} onCheckedChange={(v) => updateField(fi, { active: Boolean(v) })} />
                           </td>
                           <td className="px-2 py-2 text-right">
-                            <Button
-                              size="icon"
-                              variant="ghost"
-                              className="text-destructive"
-                              onClick={() => removeField(fi)}
-                              aria-label="Delete field"
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
+                            {!readOnly && (
+                              <Button
+                                size="icon"
+                                variant="ghost"
+                                className="text-destructive"
+                                onClick={() => removeField(fi)}
+                                aria-label="Delete field"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </Button>
+                            )}
                           </td>
                         </tr>
                       );
@@ -947,9 +975,9 @@ function AddRow({
 }: {
   placeholder: string;
   onAdd: (name: string) => void;
-  suggestions: string[];
-  onAddSuggestion: (name: string) => void;
-  suggestionLabel: string;
+  suggestions?: string[];
+  onAddSuggestion?: (name: string) => void;
+  suggestionLabel?: string;
   extraAction?: ReactNode;
 }) {
   const [value, setValue] = useState("");
@@ -977,19 +1005,21 @@ function AddRow({
         </Button>
         {extraAction}
       </div>
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span className="text-xs uppercase text-muted-foreground">{suggestionLabel}:</span>
-        {suggestions.map((s) => (
-          <button
-            key={s}
-            type="button"
-            onClick={() => onAddSuggestion(s)}
-            className="rounded-full border px-2.5 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
-          >
-            {s}
-          </button>
-        ))}
-      </div>
+      {suggestions && suggestions.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="text-xs uppercase text-muted-foreground">{suggestionLabel}:</span>
+          {suggestions.map((s) => (
+            <button
+              key={s}
+              type="button"
+              onClick={() => onAddSuggestion?.(s)}
+              className="rounded-full border px-2.5 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

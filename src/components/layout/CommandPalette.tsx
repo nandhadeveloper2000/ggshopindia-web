@@ -82,7 +82,7 @@ export function CommandPalette({ items, collapsed }: { items: NavItem[]; collaps
         onClick={() => setOpen(true)}
         title="Open Anything (Ctrl+K)"
         className={cn(
-          "flex items-center gap-2 rounded-full border bg-muted/40 text-sm text-muted-foreground transition-colors hover:bg-muted",
+          "flex items-center gap-2 rounded-full border border-white/10 bg-white/5 text-sm text-white/60 transition-colors hover:bg-white/10 hover:text-white/90",
           collapsed ? "h-9 w-9 justify-center" : "w-full px-3 py-2"
         )}
       >
@@ -90,7 +90,7 @@ export function CommandPalette({ items, collapsed }: { items: NavItem[]; collaps
         {!collapsed && (
           <>
             <span className="truncate">Open Anything</span>
-            <kbd className="ml-auto rounded border bg-background px-1.5 py-0.5 text-[10px] font-medium">Ctrl K</kbd>
+            <kbd className="ml-auto rounded border border-white/15 bg-white/10 px-1.5 py-0.5 text-[10px] font-medium text-white/70">Ctrl K</kbd>
           </>
         )}
       </button>

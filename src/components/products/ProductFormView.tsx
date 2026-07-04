@@ -1,10 +1,10 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { ArrowLeft, Loader2 } from "lucide-react";
+import { ArrowLeft, ArrowRight, Loader2 } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -18,13 +18,21 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ImageUploadField } from "@/components/common/ImageUploadField";
-import { VariationsBuilder, emptyVariations, toVariantPayload, type VariationsState } from "@/components/products/VariationsBuilder";
+import {
+  VariationsBuilder,
+  buildSku,
+  fromVariantPayload,
+  toVariantPayload,
+  type VariationsState,
+} from "@/components/products/VariationsBuilder";
 import { productsService } from "@/services/products.service";
 import {
   categoriesService,
+  modelsService,
   productTypesService,
   subCategoriesService,
 } from "@/services/catalog.service";
+import { categoryBrandsService } from "@/services/category-brands.service";
 import { attributeTemplatesService } from "@/services/attribute-templates.service";
 import { routes } from "@/lib/routes";
 import type { Product } from "@/types/product.types";
@@ -92,10 +100,13 @@ function ProductFormInner({
   const [categoryId, setCategoryId] = useState(idStr(product?.categoryId));
   const [subCategoryId, setSubCategoryId] = useState(idStr(product?.subCategoryId));
   const [productTypeId, setProductTypeId] = useState(idStr(product?.productTypeId));
+  const [brandId, setBrandId] = useState(idStr(product?.brandId));
+  const [modelId, setModelId] = useState(idStr(product?.modelId));
+  const [tab, setTab] = useState("category");
   const [dynamicValues, setDynamicValues] = useState<Record<string, unknown>>(
     (product?.dynamicFields as Record<string, unknown>) ?? {}
   );
-  const [variations, setVariations] = useState<VariationsState>(emptyVariations);
+  const [variations, setVariations] = useState<VariationsState>(() => fromVariantPayload(product?.variant));
   const [saving, setSaving] = useState(false);
   const setDyn = (key: string, v: unknown) => setDynamicValues((prev) => ({ ...prev, [key]: v }));
 
@@ -108,6 +119,51 @@ function ProductFormInner({
     [productTypes, subCategoryId]
   );
 
+  // Brands mapped to the chosen category, and models for the chosen brand.
+  const { data: brandMappings = [] } = useQuery({
+    queryKey: ["cb-brands", categoryId],
+    queryFn: () => categoryBrandsService.list(categoryId),
+    enabled: Boolean(categoryId),
+  });
+  const brandOptions = useMemo(
+    () => brandMappings.map((m) => ({ label: m.brandName ?? String(m.brandId), value: String(m.brandId) })),
+    [brandMappings]
+  );
+  const { data: allModels = [] } = useQuery({ queryKey: ["models"], queryFn: modelsService.list });
+  const modelOptions = useMemo(
+    () =>
+      allModels
+        .filter((m) => String(m.brandId) === brandId)
+        .map((m) => ({ label: m.name, value: String(m.id) })),
+    [allModels, brandId]
+  );
+  // Model number is a property of the selected model — shown read-only.
+  const selectedModelNumber = useMemo(
+    () => allModels.find((m) => String(m.id) === modelId)?.modelNumber ?? "",
+    [allModels, modelId]
+  );
+
+  // Auto SKU for Product Details: model number + the product's colour code + INS
+  // (same rule as the variant SKUs). Recomputes when model or colour changes.
+  const autoSku = useMemo(() => {
+    const colorKey = Object.keys(dynamicValues).find((k) => /colou?r/i.test(k) && k !== "sku");
+    const color = colorKey ? String(dynamicValues[colorKey] ?? "") : "";
+    return buildSku(selectedModelNumber, color);
+  }, [selectedModelNumber, dynamicValues]);
+
+  useEffect(() => {
+    if (!selectedModelNumber || !autoSku) return;
+    setDynamicValues((prev) => {
+      const cur = String(prev.sku ?? "").trim();
+      // Only overwrite an empty or previously auto-generated SKU — keep manual edits.
+      const isAuto =
+        cur === "" ||
+        cur === selectedModelNumber ||
+        (cur.startsWith(selectedModelNumber) && cur.endsWith("INS"));
+      return !isAuto || cur === autoSku ? prev : { ...prev, sku: autoSku };
+    });
+  }, [autoSku, selectedModelNumber]);
+
   const ready = Boolean(categoryId && subCategoryId && productTypeId);
   const { data: template, isFetching: loadingTemplate } = useQuery({
     queryKey: ["attr-template", categoryId, subCategoryId, productTypeId],
@@ -115,6 +171,8 @@ function ProductFormInner({
     enabled: ready,
   });
   const sections = (template?.sections ?? []).filter((s) => s.active !== false);
+  // Ordered tab keys for the Next/Back wizard navigation.
+  const tabValues = ["category", ...sections.map((_, i) => `sec-${i}`)];
   const variationsSection = sections.find((s) => /variation/i.test(s.headingName));
   const variationFields = (variationsSection?.groups ?? [])
     .flatMap((g) => (g.fields ?? []).filter((f) => f.active !== false))
@@ -125,31 +183,30 @@ function ProductFormInner({
     const itemName = String(dynamicValues.itemname ?? dynamicValues.itemName ?? "").trim();
     if (!itemName) return toast.error("Enter Item Name (Product Details → Basic Info)");
 
-    // Collect image URLs from any file/image fields. The "Main Image" becomes
-    // the product's thumbnail (first image); the rest follow in template order.
-    let mainImage: string | undefined;
-    const otherImages: string[] = [];
+    // Collect image URLs from any file/image fields for the product gallery.
+    const imageUrls: string[] = [];
     for (const s of sections)
       for (const g of s.groups ?? [])
         for (const f of g.fields ?? [])
           if (f.inputType === "file" || f.inputType === "image") {
             const v = dynamicValues[f.key];
-            if (!v) continue;
-            const url = String(v);
-            if (f.key.toLowerCase() === "mainimage" || /main\s*image/i.test(f.label)) mainImage = url;
-            else otherImages.push(url);
+            if (v) imageUrls.push(String(v));
           }
-    const imageUrls = mainImage ? [mainImage, ...otherImages] : otherImages;
 
     const payload = {
       itemName,
-      sku: dynamicValues.sku ? String(dynamicValues.sku) : undefined,
+      sku:
+        (dynamicValues.sku ? String(dynamicValues.sku).trim() : "") ||
+        selectedModelNumber ||
+        undefined,
       categoryId,
       subCategoryId,
       productTypeId,
+      brandId: brandId || undefined,
+      modelId: modelId || undefined,
       images: imageUrls,
       dynamicFieldValues: dynamicValues,
-      variant: toVariantPayload(variationFields, variations),
+      variant: toVariantPayload(variationFields, variations, selectedModelNumber),
       approvalStatus: product?.approvalStatus ?? "PENDING",
       isActiveGlobal: product?.isActiveGlobal ?? true,
     };
@@ -193,7 +250,7 @@ function ProductFormInner({
       </div>
 
       <div className="rounded-lg border bg-card p-4">
-        <Tabs defaultValue="category">
+        <Tabs value={tab} onValueChange={setTab}>
           <TabsList className="flex h-auto w-full flex-wrap justify-start gap-1">
             <TabsTrigger value="category">Category</TabsTrigger>
             {sections.map((s, i) => (
@@ -235,21 +292,60 @@ function ProductFormInner({
                 options={typeOptions.map((c) => ({ label: c.name, value: String(c.id) }))}
                 onChange={setProductTypeId}
               />
+              <SelectField
+                label="Brand"
+                disabled={!categoryId}
+                value={brandId}
+                options={brandOptions}
+                onChange={(v) => {
+                  setBrandId(v);
+                  setModelId("");
+                }}
+              />
+              <SelectField
+                label="Model Name"
+                disabled={!brandId}
+                value={modelId}
+                options={modelOptions}
+                onChange={setModelId}
+              />
+              <div className="space-y-1.5">
+                <Label>Model Number</Label>
+                <Input
+                  value={selectedModelNumber}
+                  disabled
+                  placeholder={modelId ? "—" : "Select a model first"}
+                />
+              </div>
             </div>
             {!ready && (
               <p className="text-sm text-muted-foreground">
-                Select all three above to load the product-type attribute sections.
+                Select category, sub category and product type to load the attribute sections.
               </p>
             )}
+
+            <WizardNav tabs={tabValues} current="category" onNavigate={setTab} nextDisabled={!ready} />
           </TabsContent>
 
           {sections.map((section, i) => (
-            <TabsContent key={`${section.headingName}-${i}`} value={`sec-${i}`}>
+            <TabsContent key={`${section.headingName}-${i}`} value={`sec-${i}`} className="space-y-4">
               {/variation/i.test(section.headingName) ? (
-                <VariationsBuilder fields={variationFields} value={variations} onChange={setVariations} />
+                <VariationsBuilder
+                  fields={variationFields}
+                  value={variations}
+                  onChange={setVariations}
+                  baseSku={selectedModelNumber}
+                />
               ) : (
                 <SectionFields section={section} values={dynamicValues} onChange={setDyn} />
               )}
+              <WizardNav
+                tabs={tabValues}
+                current={`sec-${i}`}
+                onNavigate={setTab}
+                onFinish={i === sections.length - 1 ? save : undefined}
+                finishing={saving}
+              />
             </TabsContent>
           ))}
 
@@ -263,6 +359,51 @@ function ProductFormInner({
           )}
         </Tabs>
       </div>
+    </div>
+  );
+}
+
+/** Back / Next (or Save on the last tab) footer used to step through the tabs. */
+function WizardNav({
+  tabs,
+  current,
+  onNavigate,
+  nextDisabled,
+  onFinish,
+  finishing,
+}: {
+  tabs: string[];
+  current: string;
+  onNavigate: (v: string) => void;
+  nextDisabled?: boolean;
+  onFinish?: () => void;
+  finishing?: boolean;
+}) {
+  const idx = tabs.indexOf(current);
+  const prev = idx > 0 ? tabs[idx - 1] : null;
+  const next = idx >= 0 && idx < tabs.length - 1 ? tabs[idx + 1] : null;
+
+  return (
+    <div className="flex items-center justify-between border-t pt-4">
+      {prev ? (
+        <Button type="button" variant="outline" onClick={() => onNavigate(prev)}>
+          <ArrowLeft className="mr-1 h-4 w-4" /> Back
+        </Button>
+      ) : (
+        <span />
+      )}
+      {next ? (
+        <Button type="button" onClick={() => onNavigate(next)} disabled={nextDisabled}>
+          Next <ArrowRight className="ml-1 h-4 w-4" />
+        </Button>
+      ) : onFinish ? (
+        <Button type="button" onClick={onFinish} disabled={finishing}>
+          {finishing && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+          Save Product
+        </Button>
+      ) : (
+        <span />
+      )}
     </div>
   );
 }

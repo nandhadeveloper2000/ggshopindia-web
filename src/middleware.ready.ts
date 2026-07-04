@@ -54,7 +54,12 @@ const AREAS: Area[] = [
   },
   { prefix: "/shop-staff/", loginPath: "/seller", allows: canAccessShopStaff },
   { prefix: "/vendor/", loginPath: "/seller", allows: canAccessVendor },
-  { prefix: "/customer/", loginPath: "/login", allows: canAccessCustomer },
+  // Signed-in shopper area (Flipkart-style URLs). Public browsing (`/`,
+  // `/products`, `/{slug}/p/{id}`, `/category`) is intentionally NOT listed.
+  { prefix: "/account", loginPath: "/login", allows: canAccessCustomer },
+  { prefix: "/wishlist", loginPath: "/login", allows: canAccessCustomer },
+  { prefix: "/cart", loginPath: "/login", allows: canAccessCustomer },
+  { prefix: "/checkout", loginPath: "/login", allows: canAccessCustomer },
 ];
 
 function resolveRole(req: NextRequest): string | undefined {
@@ -109,6 +114,9 @@ export const config = {
     "/seller/:path*",
     "/shop-staff/:path*",
     "/vendor/:path*",
-    "/customer/:path*",
+    "/account/:path*",
+    "/wishlist/:path*",
+    "/cart/:path*",
+    "/checkout/:path*",
   ],
 };

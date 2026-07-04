@@ -1,6 +1,6 @@
 "use client";
 
-import { Bell, ChevronLeft, ChevronRight, Menu, Search } from "lucide-react";
+import { Bell, Menu, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { UserMenu } from "./UserMenu";
@@ -13,11 +13,10 @@ interface Props {
 
 export function AppTopbar({ title }: Props) {
   const setMobileOpen = useSidebarStore((s) => s.setMobileOpen);
-  const collapsed = useSidebarStore((s) => s.collapsed);
-  const toggleSidebar = useSidebarStore((s) => s.toggle);
 
   return (
     <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/80 lg:px-6">
+      {/* Mobile-only menu. Desktop collapse lives on the sidebar (hover-revealed). */}
       <Button
         size="icon"
         variant="ghost"
@@ -26,16 +25,6 @@ export function AppTopbar({ title }: Props) {
         aria-label="Open menu"
       >
         <Menu className="h-5 w-5" />
-      </Button>
-
-      <Button
-        size="icon"
-        variant="ghost"
-        className="hidden lg:inline-flex"
-        onClick={toggleSidebar}
-        aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-      >
-        {collapsed ? <ChevronRight className="h-5 w-5" /> : <ChevronLeft className="h-5 w-5" />}
       </Button>
 
       {title && <h1 className="text-base font-semibold hidden md:block">{title}</h1>}

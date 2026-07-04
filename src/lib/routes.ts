@@ -1,3 +1,5 @@
+import { slugify } from "./utils";
+
 export const routes = {
   portals: {
     master: "/master",
@@ -16,8 +18,9 @@ export const routes = {
     dashboard: "/master/dashboard",
     users: "/master/users",
     shopOwners: "/master/shop-owners",
-    shopOwnerDetails: (id: string | number) => `/master/shop-owners/${id}`,
-    shopOwnerEdit: (id: string | number) => `/master/shop-owners/${id}/edit`,
+    shopOwnerDetails: (id: string | number) => `/master/shop-owners/view/?id=${id}`,
+    shopOwnerEdit: (id: string | number) => `/master/shop-owners/edit/?id=${id}`,
+    productEdit: (id: string | number) => `/master/products/edit/?id=${id}`,
     shops: "/master/shops",
     categories: "/master/categories",
     brands: "/master/brands",
@@ -67,19 +70,31 @@ export const routes = {
     barcode: "/shop-staff/barcode",
     notifications: "/shop-staff/notifications",
   },
+  // Flipkart-style storefront URLs. Public browsing lives at the root
+  // (`/`, `/products`, `/{slug}/p/{id}`); the signed-in shopper's area is under
+  // `/account/*` plus top-level `/wishlist`, `/cart`, `/checkout`.
   customer: {
-    home: "/customer/home",
-    products: "/customer/products",
-    productDetails: (id: string | number) => `/customer/products/${id}`,
-    cart: "/customer/cart",
-    checkout: "/customer/checkout",
-    orders: "/customer/orders",
-    orderDetails: (id: string | number) => `/customer/orders/${id}`,
-    invoices: "/customer/invoices",
-    wishlist: "/customer/wishlist",
-    reviews: "/customer/reviews",
-    profile: "/customer/profile",
-    notifications: "/customer/notifications",
+    home: "/",
+    products: "/products",
+    // Flipkart-shaped product URL: /{name-slug}/p/{id}. The slug is cosmetic —
+    // the detail page resolves the product by id — so a stale slug still works.
+    productDetails: (id: string | number, name?: string) =>
+      `/${slugify(name) || "product"}/p/${id}`,
+    category: (id: string | number, name?: string) => {
+      const slug = slugify(name);
+      const params = new URLSearchParams({ id: String(id) });
+      if (slug) params.set("name", slug);
+      return `/category/?${params.toString()}`;
+    },
+    cart: "/cart",
+    checkout: "/checkout",
+    orders: "/account/orders",
+    orderDetails: (id: string | number) => `/account/orders/${id}`,
+    invoices: "/account/invoices",
+    wishlist: "/wishlist",
+    reviews: "/account/reviews",
+    profile: "/account",
+    notifications: "/account/notifications",
   },
   vendor: {
     dashboard: "/vendor/dashboard",

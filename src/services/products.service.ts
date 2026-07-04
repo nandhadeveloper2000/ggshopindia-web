@@ -1,4 +1,4 @@
-import { apiRequest } from "./_helpers";
+import { apiRequest, fetchAllPages } from "./_helpers";
 import type { Product, ProductApprovalStatus } from "@/types/product.types";
 import type { ID } from "@/types/common.types";
 
@@ -14,6 +14,12 @@ interface PageEnvelope<T> {
   size: number;
   totalElements: number;
   totalPages: number;
+}
+
+export interface ProductSearchResult {
+  brands: Array<{ id: string; name: string }>;
+  categories: Array<{ id: string; name: string; brandName?: string }>;
+  products: Array<{ id: string; name: string; sku?: string; brandName?: string; categoryName?: string; image?: string }>;
 }
 
 type BackendProductStatus = ProductApprovalStatus | "ACTIVE" | "INACTIVE";
@@ -79,6 +85,7 @@ function mapProduct(product: BackendProductResponse): Product {
     modelName: product.modelName,
     images: mapMedia(product.images),
     videos: mapMedia(product.videos),
+    variant: product.variant,
     dynamicFields: product.dynamicFields ?? product.dynamicFieldValues,
     approvalStatus: mapApprovalStatus(product.status),
     isActiveGlobal: product.active,
@@ -100,16 +107,25 @@ function toBackendPayload(payload: Partial<Product>) {
 
 export const productsService = {
   list: async (params?: Record<string, unknown>): Promise<Product[]> => {
-    const env = await apiRequest<ApiEnvelope<PageEnvelope<BackendProductResponse>>>({
-      url: "/products",
-      params: { size: 100, sortBy: "createdAt", sortDir: "desc", ...params },
-    });
-    return (env.data?.content ?? []).map(mapProduct);
+    const rows = await fetchAllPages<BackendProductResponse>((page, size) =>
+      apiRequest<ApiEnvelope<PageEnvelope<BackendProductResponse>>>({
+        url: "/products",
+        // `page`/`size` come last so the paging loop is never overridden by params.
+        params: { sortBy: "createdAt", sortDir: "desc", ...params, page, size },
+      }).then((env) => env.data),
+    );
+    return rows.map(mapProduct);
   },
 
   get: async (id: ID): Promise<Product> => {
     const env = await apiRequest<ApiEnvelope<BackendProductResponse>>({ url: `/products/${id}` });
     return mapProduct(env.data);
+  },
+
+  /** Storefront autocomplete: matching products + brand/category suggestions. */
+  search: async (q: string): Promise<ProductSearchResult> => {
+    const env = await apiRequest<ApiEnvelope<ProductSearchResult>>({ url: "/products/search", params: { q } });
+    return env.data;
   },
 
   create: async (payload: Partial<Product>): Promise<Product> => {

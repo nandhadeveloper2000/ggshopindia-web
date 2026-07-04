@@ -25,6 +25,8 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 
   setSession: (user, accessToken, refreshToken) => {
     if (typeof window !== "undefined") {
+      // Clear any stale demo marker; the demo flow re-sets it after this call.
+      localStorage.removeItem(STORAGE_KEYS.demo);
       localStorage.setItem(STORAGE_KEYS.user, JSON.stringify(user));
       localStorage.setItem(STORAGE_KEYS.accessToken, accessToken);
       if (refreshToken) localStorage.setItem(STORAGE_KEYS.refreshToken, refreshToken);
@@ -49,6 +51,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       localStorage.removeItem(STORAGE_KEYS.accessToken);
       localStorage.removeItem(STORAGE_KEYS.refreshToken);
       localStorage.removeItem(STORAGE_KEYS.shopId);
+      localStorage.removeItem(STORAGE_KEYS.demo);
       clearAuthCookies();
     }
     set({ user: null, accessToken: null, refreshToken: null, isAuthenticated: false });

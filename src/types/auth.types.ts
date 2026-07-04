@@ -10,7 +10,10 @@ export interface AuthUser {
   mobile?: string;
   role: UserRoleType | string;
   avatarUrl?: string;
+  /** Present for a Business Location login — the one shop this user is scoped to. */
   shopId?: string | number;
+  /** Present for a Shop Owner (and location) login — the owner account they belong to. */
+  shopOwnerId?: string | number;
   customerId?: string | number;
   vendorId?: string | number;
 }

@@ -1,7 +1,16 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { CheckSquare, Package, ShoppingCart, Store, Users, UserCog } from "lucide-react";
+import {
+  CheckSquare,
+  Globe,
+  Package,
+  Store,
+  UserCheck,
+  UserCog,
+  UserX,
+  Warehouse,
+} from "lucide-react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { StatCard } from "@/components/common/StatCard";
 import { ChartCard } from "@/components/common/ChartCard";
@@ -11,7 +20,6 @@ import { OrderStatusChart } from "@/components/dashboard/OrderStatusChart";
 import { RecentOrdersTable } from "@/components/dashboard/RecentOrdersTable";
 import { StatusBadge } from "@/components/common/StatusBadge";
 import { Badge } from "@/components/ui/badge";
-import { usersService } from "@/services/users.service";
 import { shopOwnersService } from "@/services/shopOwners.service";
 import { shopsService } from "@/services/shops.service";
 import { productsService } from "@/services/products.service";
@@ -21,7 +29,6 @@ import { notificationsService } from "@/services/notifications.service";
 import { formatNumber } from "@/lib/utils";
 
 export default function SuperAdminDashboardPage() {
-  const users = useQuery({ queryKey: ["users"], queryFn: usersService.list });
   const owners = useQuery({ queryKey: ["shop-owners"], queryFn: shopOwnersService.list });
   const shops = useQuery({ queryKey: ["shops"], queryFn: shopsService.list });
   const products = useQuery({ queryKey: ["products"], queryFn: () => productsService.list() });
@@ -30,19 +37,80 @@ export default function SuperAdminDashboardPage() {
   const status = useQuery({ queryKey: ["order-status"], queryFn: reportsService.orderStatus });
   const notifications = useQuery({ queryKey: ["notifications"], queryFn: notificationsService.list });
 
-  const pendingApprovals = (products.data ?? []).filter((p) => p.approvalStatus === "PENDING");
+  const ownersList = owners.data ?? [];
+  const shopsList = shops.data ?? [];
+  const productsList = products.data ?? [];
+  const pendingApprovals = productsList.filter((p) => p.approvalStatus === "PENDING");
+
+  // Each shop's mode is inherited from its owner's Shop Control setting.
+  const controlByOwner = new Map(ownersList.map((o) => [String(o.id), o.shopControl]));
+  const inventoryOnlyShops = shopsList.filter(
+    (s) => controlByOwner.get(String(s.shopOwnerId)) === "INVENTORY_ONLY"
+  ).length;
+  const ecommerceShops = shopsList.filter(
+    (s) => controlByOwner.get(String(s.shopOwnerId)) === "INVENTORY_AND_ECOMMERCE"
+  ).length;
+  const activeOwners = ownersList.filter((o) => o.isActive).length;
+  const inactiveOwners = ownersList.filter((o) => !o.isActive).length;
 
   return (
     <>
       <PageHeader title="Dashboard" description="Platform overview across all shops and operations." />
 
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
-        <StatCard title="Total Users" value={formatNumber(users.data?.length ?? 0)} icon={Users} />
-        <StatCard title="Shop Owners" value={formatNumber(owners.data?.length ?? 0)} icon={UserCog} />
-        <StatCard title="Shops" value={formatNumber(shops.data?.length ?? 0)} icon={Store} />
-        <StatCard title="Products" value={formatNumber(products.data?.length ?? 0)} icon={Package} />
-        <StatCard title="Pending Approvals" value={formatNumber(pendingApprovals.length)} icon={CheckSquare} iconClassName="bg-warning/10 text-warning" />
-        <StatCard title="Total Orders" value={formatNumber(orders.data?.length ?? 0)} icon={ShoppingCart} />
+      <div className="space-y-5">
+        {/* Shop Owners */}
+        <section className="space-y-2">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Shop Owners
+          </h2>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <StatCard title="Shop Owners" value={formatNumber(ownersList.length)} icon={UserCog} />
+            <StatCard
+              title="Active Owners"
+              value={formatNumber(activeOwners)}
+              icon={UserCheck}
+              iconClassName="bg-emerald-50 text-emerald-600"
+            />
+            <StatCard
+              title="Inactive Owners"
+              value={formatNumber(inactiveOwners)}
+              icon={UserX}
+              iconClassName="bg-muted text-muted-foreground"
+            />
+          </div>
+        </section>
+
+        {/* Shops */}
+        <section className="space-y-2">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Shops
+          </h2>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <StatCard title="Total Shops" value={formatNumber(shopsList.length)} icon={Store} />
+            <StatCard title="Inventory Only" value={formatNumber(inventoryOnlyShops)} icon={Warehouse} />
+            <StatCard
+              title="Inventory + Ecommerce"
+              value={formatNumber(ecommerceShops)}
+              icon={Globe}
+            />
+          </div>
+        </section>
+
+        {/* Products */}
+        <section className="space-y-2">
+          <h2 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            Products
+          </h2>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <StatCard title="Total Products" value={formatNumber(productsList.length)} icon={Package} />
+            <StatCard
+              title="Pending Approvals"
+              value={formatNumber(pendingApprovals.length)}
+              icon={CheckSquare}
+              iconClassName="bg-warning/10 text-warning"
+            />
+          </div>
+        </section>
       </div>
 
       <div className="grid gap-4 mt-4 lg:grid-cols-3">

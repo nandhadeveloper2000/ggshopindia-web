@@ -7,6 +7,8 @@ import { toast } from "sonner";
 import {
   ArrowLeft,
   Building2,
+  Eye,
+  EyeOff,
   ImagePlus,
   Loader2,
   LocateFixed,
@@ -34,8 +36,14 @@ import { shopOwnersService } from "@/services/shopOwners.service";
 import { shopsService } from "@/services/shops.service";
 import { INDIAN_STATES } from "@/lib/constants";
 import { uploadToCloudinary, type CloudinaryResource } from "@/lib/cloudinary";
-import { searchOsm, reverseOsm, type OsmAddressFill, type OsmPlace } from "@/lib/osm";
+import { reverseOsm, type OsmAddressFill } from "@/lib/osm";
 import { extractErrorMessage } from "@/lib/axios";
+import {
+  LiveLocationMap,
+  ShopNameOsmSearch,
+  WORKING_DAYS_OPTIONS,
+  toCoord,
+} from "./location-fields";
 import type {
   BillingType,
   BusinessType,
@@ -65,22 +73,6 @@ const BILLING_TYPE_OPTIONS: { value: BillingType; label: string }[] = [
   { value: "NON_GST", label: "Non-GST" },
   { value: "BOTH", label: "Both" },
 ];
-
-const WORKING_DAYS_OPTIONS = [
-  "Monday – Saturday",
-  "Monday – Friday",
-  "Monday – Sunday",
-  "All Days",
-  "Weekends Only",
-];
-
-/** Parse a free-text lat/lng string into a number, or undefined if invalid. */
-function toCoord(v: string): number | undefined {
-  const t = v.trim();
-  if (!t) return undefined;
-  const n = Number(t);
-  return Number.isFinite(n) ? n : undefined;
-}
 
 interface BusinessLocation {
   /** Set when editing an existing shop; absent for newly-added drafts. */
@@ -112,6 +104,9 @@ interface BusinessLocation {
   gstCertificateUrl: string;
   udyamCertificateUrl: string;
   isActive?: boolean;
+  /** This location's own login credentials (mobile + password/PIN). */
+  password: string;
+  pin: string;
 }
 
 const emptyLocation: BusinessLocation = {
@@ -138,6 +133,8 @@ const emptyLocation: BusinessLocation = {
   bannerImageUrl: "",
   gstCertificateUrl: "",
   udyamCertificateUrl: "",
+  password: "",
+  pin: "",
 };
 
 interface OwnerBasic {
@@ -145,6 +142,7 @@ interface OwnerBasic {
   fullName: string;
   username: string;
   email: string;
+  password: string;
   pin: string;
   primaryMobile: string;
   secondaryMobile: string;
@@ -193,6 +191,9 @@ function shopToLocation(shop: Shop): BusinessLocation {
     gstCertificateUrl: shop.settings?.documents?.gstCertificateUrl ?? "",
     udyamCertificateUrl: shop.settings?.documents?.udyamCertificateUrl ?? "",
     isActive: shop.isActive,
+    // Credentials are never returned by the API — leave blank on edit (keep existing).
+    password: "",
+    pin: "",
   };
 }
 
@@ -207,12 +208,17 @@ export function ShopOwnerForm({ mode, ownerId, initialOwner, initialShops }: Sho
   const router = useRouter();
   const [submitting, setSubmitting] = useState(false);
   const [locating, setLocating] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showPin, setShowPin] = useState(false);
+  const [showLocPassword, setShowLocPassword] = useState(false);
+  const [showLocPin, setShowLocPin] = useState(false);
 
   const [basic, setBasic] = useState<OwnerBasic>(() => ({
     shopControl: initialOwner?.shopControl ?? "INVENTORY_ONLY",
     fullName: initialOwner?.name ?? "",
     username: initialOwner?.username ?? "",
     email: initialOwner?.email ?? "",
+    password: "",
     pin: "",
     primaryMobile: initialOwner?.mobile ?? "",
     secondaryMobile: initialOwner?.secondaryMobile ?? "",
@@ -391,6 +397,14 @@ export function ShopOwnerForm({ mode, ownerId, initialOwner, initialShops }: Sho
       toast.error("Mobile must be a valid 10-digit Indian number");
       return;
     }
+    if (draftLocation.password && draftLocation.password.length < 6) {
+      toast.error("Location login password must be at least 6 characters");
+      return;
+    }
+    if (draftLocation.pin && !draftLocation.pin.match(/^\d{4,6}$/)) {
+      toast.error("Location login PIN must be 4-6 digits");
+      return;
+    }
     const gstRequired =
       draftLocation.billingType === "GST" || draftLocation.billingType === "BOTH";
     if (gstRequired) {
@@ -464,6 +478,10 @@ export function ShopOwnerForm({ mode, ownerId, initialOwner, initialShops }: Sho
     if (basic.secondaryMobile && !basic.secondaryMobile.match(/^[6-9]\d{9}$/))
       return "Secondary Mobile is invalid";
     if (basic.pin && !basic.pin.match(/^\d{4,6}$/)) return "PIN must be 4-6 digits";
+    // Password is the owner's seller-portal login credential — required on create.
+    if (mode === "create" && !basic.password.trim()) return "Password is required";
+    if (basic.password && basic.password.length < 6)
+      return "Password must be at least 6 characters";
     return null;
   };
 
@@ -481,6 +499,10 @@ export function ShopOwnerForm({ mode, ownerId, initialOwner, initialShops }: Sho
         mobile: basic.primaryMobile.trim(),
         businessName: locations[0]?.shopName || initialOwner?.businessName,
         profileImageUrl: avatarUrl || undefined,
+        // Login credentials go top-level so the backend hashes them onto the
+        // linked User account (never stored in the profile JSON below).
+        password: basic.password.trim() || undefined,
+        pin: basic.pin.trim() || undefined,
         address: {
           state: address.state || undefined,
           district: address.district || undefined,
@@ -491,7 +513,6 @@ export function ShopOwnerForm({ mode, ownerId, initialOwner, initialShops }: Sho
           username: basic.username,
           shopControl: basic.shopControl,
           secondaryMobile: basic.secondaryMobile || undefined,
-          pin: basic.pin || undefined,
           idProofUrl: idProofUrl || undefined,
         },
       };
@@ -549,6 +570,8 @@ export function ShopOwnerForm({ mode, ownerId, initialOwner, initialShops }: Sho
         bannerImageUrl: loc.bannerImageUrl || undefined,
         gstCertificateUrl: loc.gstCertificateUrl || undefined,
         udyamCertificateUrl: loc.udyamCertificateUrl || undefined,
+        password: loc.password || undefined,
+        pin: loc.pin || undefined,
       });
 
       for (const { loc, idx } of mains) {
@@ -681,14 +704,49 @@ export function ShopOwnerForm({ mode, ownerId, initialOwner, initialShops }: Sho
                 placeholder="Email Address"
               />
             </FieldLabel>
+            <FieldLabel label={isEdit ? "New Password" : "Password"} required={!isEdit}>
+              <div className="relative">
+                <Input
+                  type={showPassword ? "text" : "password"}
+                  value={basic.password}
+                  onChange={(e) => updateBasic("password", e.target.value)}
+                  placeholder={isEdit ? "Leave blank to keep" : "Min 6 characters"}
+                  autoComplete="new-password"
+                  className="pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((s) => !s)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  tabIndex={-1}
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+            </FieldLabel>
             <FieldLabel label={isEdit ? "New PIN" : "PIN"} required={!isEdit}>
-              <Input
-                type="password"
-                value={basic.pin}
-                onChange={(e) => updateBasic("pin", e.target.value)}
-                placeholder={isEdit ? "Leave blank to keep" : "4-6 digit PIN"}
-                maxLength={6}
-              />
+              <div className="relative">
+                <Input
+                  type={showPin ? "text" : "password"}
+                  value={basic.pin}
+                  onChange={(e) => updateBasic("pin", e.target.value)}
+                  placeholder={isEdit ? "Leave blank to keep" : "4-6 digit PIN"}
+                  maxLength={6}
+                  inputMode="numeric"
+                  autoComplete="off"
+                  className="pr-10"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPin((s) => !s)}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  aria-label={showPin ? "Hide PIN" : "Show PIN"}
+                  tabIndex={-1}
+                >
+                  {showPin ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
             </FieldLabel>
             <FieldLabel label="Primary Mobile" required>
               <Input
@@ -960,9 +1018,57 @@ export function ShopOwnerForm({ mode, ownerId, initialOwner, initialShops }: Sho
                   type="tel"
                   value={draftLocation.contactMobile}
                   onChange={(e) => updateDraft("contactMobile", e.target.value)}
-                  placeholder="Mobile"
+                  placeholder="Mobile (also this location's login ID)"
                   maxLength={10}
                 />
+              </FieldLabel>
+              <FieldLabel
+                label={
+                  draftLocation.__originalId ? "Location Login Password (new)" : "Location Login Password"
+                }
+              >
+                <div className="relative">
+                  <Input
+                    type={showLocPassword ? "text" : "password"}
+                    value={draftLocation.password}
+                    onChange={(e) => updateDraft("password", e.target.value)}
+                    placeholder={draftLocation.__originalId ? "Leave blank to keep" : "Min 6 chars (optional)"}
+                    autoComplete="new-password"
+                    className="pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowLocPassword((s) => !s)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    aria-label={showLocPassword ? "Hide password" : "Show password"}
+                    tabIndex={-1}
+                  >
+                    {showLocPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
+              </FieldLabel>
+              <FieldLabel label="Location Login PIN">
+                <div className="relative">
+                  <Input
+                    type={showLocPin ? "text" : "password"}
+                    value={draftLocation.pin}
+                    onChange={(e) => updateDraft("pin", e.target.value)}
+                    placeholder={draftLocation.__originalId ? "Leave blank to keep" : "4-6 digits (optional)"}
+                    maxLength={6}
+                    inputMode="numeric"
+                    autoComplete="off"
+                    className="pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowLocPin((s) => !s)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                    aria-label={showLocPin ? "Hide PIN" : "Show PIN"}
+                    tabIndex={-1}
+                  >
+                    {showLocPin ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
+                </div>
               </FieldLabel>
               <FieldLabel
                 label="GST Number"
@@ -1243,156 +1349,6 @@ function StateSelect({ value, onChange }: { value: string; onChange: (v: string)
         ))}
       </SelectContent>
     </Select>
-  );
-}
-
-/**
- * Live OpenStreetMap preview that re-centers on the current lat/lng. The embed
- * URL is keyed off the coordinates, so it updates the moment they change
- * (typing, an OSM pick, or "Get Current Location"). No API key required.
- */
-function LiveLocationMap({ lat, lon }: { lat: string; lon: string }) {
-  const la = Number(lat);
-  const lo = Number(lon);
-  const hasCoords =
-    lat.trim() !== "" && lon.trim() !== "" && Number.isFinite(la) && Number.isFinite(lo);
-
-  if (!hasCoords) {
-    return (
-      <div className="mt-3 flex h-48 items-center justify-center rounded-md border border-dashed bg-muted/30 text-center text-xs text-muted-foreground">
-        <span className="px-4">
-          Enter a latitude &amp; longitude, pick an OpenStreetMap result, or use
-          “Get Current Location” to preview the shop on a live map.
-        </span>
-      </div>
-    );
-  }
-
-  // Google Maps embed via the no-API-key `output=embed` endpoint.
-  const embedSrc = `https://maps.google.com/maps?q=${la},${lo}&z=16&hl=en&output=embed`;
-  const fullMap = `https://www.google.com/maps/search/?api=1&query=${la},${lo}`;
-
-  return (
-    <div className="mt-3 space-y-1">
-      <iframe
-        // key forces a fresh load when coords change so the marker re-centers
-        key={`${la},${lo}`}
-        title="Shop location on Google Maps"
-        src={embedSrc}
-        className="h-48 w-full rounded-md border"
-        loading="lazy"
-        referrerPolicy="no-referrer-when-downgrade"
-      />
-      <div className="flex items-center justify-between text-[11px] text-muted-foreground">
-        <span>
-          📍 {la.toFixed(5)}, {lo.toFixed(5)}
-        </span>
-        <a
-          href={fullMap}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-primary underline"
-        >
-          View larger map
-        </a>
-      </div>
-    </div>
-  );
-}
-
-/**
- * Shop-name input doubling as an OpenStreetMap (Nominatim) search box. Typing 3+
- * characters debounces a forward-geocode; picking a suggestion calls onPick with
- * the resolved address + coordinates.
- */
-function ShopNameOsmSearch({
-  value,
-  onValueChange,
-  onPick,
-}: {
-  value: string;
-  onValueChange: (v: string) => void;
-  onPick: (fill: OsmAddressFill) => void;
-}) {
-  const [results, setResults] = useState<OsmPlace[]>([]);
-  const [open, setOpen] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [searched, setSearched] = useState(false);
-
-  useEffect(() => {
-    const q = value.trim();
-    if (q.length < 3) {
-      setResults([]);
-      setLoading(false);
-      setSearched(false);
-      return;
-    }
-    const ctrl = new AbortController();
-    setLoading(true);
-    const t = setTimeout(() => {
-      searchOsm(q, ctrl.signal)
-        .then((places) => {
-          setResults(places);
-          setSearched(true);
-          setOpen(true);
-        })
-        .catch((e) => {
-          if (!(e instanceof DOMException && e.name === "AbortError")) {
-            setResults([]);
-            setSearched(true);
-          }
-        })
-        .finally(() => setLoading(false));
-    }, 500);
-    return () => {
-      clearTimeout(t);
-      ctrl.abort();
-    };
-  }, [value]);
-
-  return (
-    <div className="relative">
-      <Input
-        value={value}
-        onChange={(e) => onValueChange(e.target.value)}
-        onFocus={() => results.length > 0 && setOpen(true)}
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
-        placeholder="Type shop name or address (e.g. Globo Green Cuddalore)"
-        autoComplete="off"
-      />
-      {loading && (
-        <Loader2 className="absolute right-2 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-muted-foreground" />
-      )}
-      {open && results.length > 0 && (
-        <ul className="absolute z-50 mt-1 max-h-64 w-full overflow-auto rounded-md border bg-popover py-1 text-sm shadow-md">
-          {results.map((r, i) => (
-            <li key={i}>
-              <button
-                type="button"
-                className="flex w-full items-start gap-2 px-3 py-2 text-left hover:bg-muted"
-                onMouseDown={(e) => {
-                  // mousedown (not click) so it fires before the input blur closes the list
-                  e.preventDefault();
-                  onPick(r.fill);
-                  setOpen(false);
-                }}
-              >
-                <MapPin className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                <span className="line-clamp-2">{r.displayName}</span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      {open && !loading && searched && results.length === 0 && (
-        <div className="absolute z-50 mt-1 w-full rounded-md border bg-popover px-3 py-2 text-xs text-muted-foreground shadow-md">
-          No OpenStreetMap match. OSM doesn’t index most small businesses — try a
-          street/area (e.g. “Imperial Road Cuddalore”), or use{" "}
-          <span className="font-medium text-foreground">Find on Google Maps</span> to
-          read the coordinates.
-        </div>
-      )}
-    </div>
   );
 }
 

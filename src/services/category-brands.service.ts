@@ -1,4 +1,5 @@
 import { apiRequest } from "@/lib/axios";
+import { fetchAllPages } from "./_helpers";
 import type { ID } from "@/types/common.types";
 import type { CategoryBrand } from "@/types/catalog.types";
 
@@ -17,11 +18,13 @@ const normalize = (cb: CategoryBrand): CategoryBrand => ({ ...cb, isActive: cb.i
 
 export const categoryBrandsService = {
   list: async (categoryId?: ID): Promise<CategoryBrand[]> => {
-    const env = await apiRequest<ApiEnvelope<PageEnvelope<CategoryBrand>>>({
-      url: "/catalog/category-brands",
-      params: { size: 500, ...(categoryId ? { categoryId } : {}) },
-    });
-    return (env.data?.content ?? []).map(normalize);
+    const rows = await fetchAllPages<CategoryBrand>((page, size) =>
+      apiRequest<ApiEnvelope<PageEnvelope<CategoryBrand>>>({
+        url: "/catalog/category-brands",
+        params: { page, size, ...(categoryId ? { categoryId } : {}) },
+      }).then((env) => env.data),
+    );
+    return rows.map(normalize);
   },
 
   /** Bulk map a category to many brands. Returns the newly-created rows. */

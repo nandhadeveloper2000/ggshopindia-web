@@ -84,3 +84,22 @@
   background-color: hsl(var(--muted-foreground) / 0.3);
   border-radius: 3px;
 }
+
+/* Gentle floating loop used by illustrated status pages (e.g. /unauthorized). */
+@keyframes float-soft {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-8px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .animate-float-soft {
+    animation: none !important;
+  }
+}
+.animate-float-soft {
+  animation: float-soft 5s ease-in-out infinite;
+}

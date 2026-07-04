@@ -30,8 +30,12 @@ export interface VariationsState {
 export const emptyVariations: VariationsState = { selected: [], values: {}, rows: {} };
 
 const STATUS_OPTIONS = ["Available", "Unavailable"];
+// Order-independent key: sort by field key so a combo loaded from saved data
+// (e.g. {ram,color,storage}) matches a freshly-generated one ({color,ram,storage}).
+// Without sorting, edit mode fails to hydrate each variant's images/status/condition.
 const comboKey = (combo: Record<string, string>) =>
   Object.entries(combo)
+    .sort(([a], [b]) => a.localeCompare(b))
     .map(([k, v]) => `${k}:${v}`)
     .join("|");
 
@@ -48,14 +52,73 @@ function buildCombos(selected: string[], values: Record<string, string[]>): Reco
   return acc;
 }
 
+/** The variation-type key that represents colour, if any (color / colour). */
+function colorKeyOf(fields: Field[]): string | undefined {
+  return fields.find((f) => /colou?r/i.test(f.key) || /colou?r/i.test(f.label))?.key;
+}
+
+/** Colour code from the colour name — initials of the words: "Dark Red" -> "DR", "Light Green" -> "LG". */
+function colorCode(color: string): string {
+  const words = color.trim().split(/\s+/).filter(Boolean);
+  const raw = words.length >= 2 ? words.map((w) => w[0]).join("") : (words[0] ?? "").slice(0, 2);
+  return raw.toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
+/**
+ * SKU from the model number + colour code + India region code,
+ * e.g. "SM-A146B" + "Dark Red" -> "SM-A146BDRINS". Falls back to the plain model
+ * number when there's no colour. Used for both product-level and variant SKUs.
+ */
+export function buildSku(baseSku: string | undefined, color?: string): string {
+  const base = (baseSku ?? "").trim();
+  if (!base) return "";
+  const code = color && color.trim() ? colorCode(color) : "";
+  return code ? `${base}${code}INS` : base;
+}
+
+/** Variant SKU: buildSku using the variant's colour dimension. */
+export function skuForCombo(baseSku: string | undefined, fields: Field[], combo: Record<string, string>): string {
+  const ck = colorKeyOf(fields);
+  return buildSku(baseSku, ck ? combo[ck] : undefined);
+}
+
 /** Turn the builder state into a flat, serialisable variant payload. */
-export function toVariantPayload(fields: Field[], value: VariationsState) {
+export function toVariantPayload(fields: Field[], value: VariationsState, baseSku?: string) {
   const combos = buildCombos(value.selected, value.values);
   return {
     types: value.selected.map((k) => ({ key: k, label: fields.find((f) => f.key === k)?.label ?? k })),
     values: value.values,
-    rows: combos.map((combo) => ({ combo, ...(value.rows[comboKey(combo)] ?? {}) })),
+    rows: combos.map((combo) => {
+      const row = value.rows[comboKey(combo)] ?? {};
+      const sku = row.sku && row.sku.trim() ? row.sku : skuForCombo(baseSku, fields, combo) || undefined;
+      // Status defaults to "Available" (matches the builder's default) so it persists.
+      return { combo, ...row, sku, status: row.status || "Available" };
+    }),
   };
+}
+
+/** Rebuild the builder state from a saved variant payload (for editing a product). */
+export function fromVariantPayload(payload: unknown): VariationsState {
+  if (!payload || typeof payload !== "object") return emptyVariations;
+  const p = payload as {
+    types?: { key?: string }[];
+    values?: Record<string, string[]>;
+    rows?: Array<{ combo?: Record<string, string> } & VariantRowData>;
+  };
+  const values = p.values && typeof p.values === "object" ? p.values : {};
+  const selected =
+    Array.isArray(p.types) && p.types.length > 0
+      ? p.types.map((t) => t.key).filter((k): k is string => Boolean(k))
+      : Object.keys(values);
+  const rows: Record<string, VariantRowData> = {};
+  if (Array.isArray(p.rows)) {
+    for (const r of p.rows) {
+      if (!r || !r.combo) continue;
+      const { combo, ...rowData } = r;
+      rows[comboKey(combo)] = rowData;
+    }
+  }
+  return { selected, values, rows };
 }
 
 interface Field {
@@ -67,10 +130,13 @@ export function VariationsBuilder({
   fields,
   value,
   onChange,
+  baseSku,
 }: {
   fields: Field[];
   value: VariationsState;
   onChange: (v: VariationsState) => void;
+  /** Base SKU (the product's model number); each row appends its colour code. */
+  baseSku?: string;
 }) {
   const [bulkStatus, setBulkStatus] = useState("Available");
   const [selectedRows, setSelectedRows] = useState<Set<string>>(new Set());
@@ -252,7 +318,12 @@ export function VariationsBuilder({
                         </td>
                       ))}
                       <td className="px-2 py-2">
-                        <Input value={row.sku ?? ""} onChange={(e) => setRow(k, { sku: e.target.value })} placeholder="SKU" className="h-8 min-w-28" />
+                        <Input
+                          value={row.sku || skuForCombo(baseSku, fields, combo) || ""}
+                          onChange={(e) => setRow(k, { sku: e.target.value })}
+                          placeholder={skuForCombo(baseSku, fields, combo) || "SKU"}
+                          className="h-8 min-w-28"
+                        />
                       </td>
                       <td className="px-2 py-2">
                         <Input

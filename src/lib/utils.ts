@@ -45,3 +45,27 @@ export function initials(name?: string | null) {
 export function sleep(ms: number) {
   return new Promise((res) => setTimeout(res, ms));
 }
+
+/**
+ * URL-safe slug from a product/category name (Flipkart-style), e.g.
+ * "Samsung Galaxy A14 5G" → "samsung-galaxy-a14-5g". Used to build pretty
+ * `/{slug}/p/{id}` product URLs; the slug is cosmetic (routing keys off the id),
+ * so a stale slug still resolves the right product.
+ */
+export function slugify(value?: string | null): string {
+  return (value ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
+/** Great-circle distance in km between two lat/lng points (Haversine). */
+export function haversineKm(aLat: number, aLng: number, bLat: number, bLng: number): number {
+  const R = 6371;
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(bLat - aLat);
+  const dLng = toRad(bLng - aLng);
+  const s = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(aLat)) * Math.cos(toRad(bLat)) * Math.sin(dLng / 2) ** 2;
+  return 2 * R * Math.asin(Math.sqrt(s));
+}

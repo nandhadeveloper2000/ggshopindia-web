@@ -40,6 +40,27 @@ export default function ShopOwnersPage() {
     return map;
   }, [shops]);
 
+  // Business location names grouped by owner, so the list can show them 1., 2., …
+  // Ordered MAIN first, then BRANCH.
+  const locationsByOwner = useMemo(() => {
+    const rank = (t?: string) => (t === "MAIN" ? 0 : 1);
+    const grouped = new Map<string, typeof shops>();
+    for (const s of shops) {
+      const k = String(s.shopOwnerId);
+      const arr = grouped.get(k) ?? [];
+      arr.push(s);
+      grouped.set(k, arr);
+    }
+    const map = new Map<string, string[]>();
+    for (const [k, arr] of grouped) {
+      const names = [...arr]
+        .sort((a, b) => rank(a.shopType) - rank(b.shopType))
+        .map((s) => s.shopName ?? s.name ?? "Unnamed");
+      map.set(k, names);
+    }
+    return map;
+  }, [shops]);
+
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ["shop-owners"] });
     qc.invalidateQueries({ queryKey: ["shops"] });
@@ -68,6 +89,25 @@ export default function ShopOwnersPage() {
         },
         { key: "email", header: "Email" },
         { key: "mobile", header: "Mobile" },
+        {
+          key: "_locations",
+          header: "Business Location",
+          render: (r) => {
+            const locs = locationsByOwner.get(String(r.id)) ?? [];
+            if (locs.length === 0) {
+              return <span className="text-xs text-muted-foreground">—</span>;
+            }
+            return (
+              <ol className="list-decimal space-y-0.5 pl-4 text-xs">
+                {locs.map((n, i) => (
+                  <li key={i} className="max-w-[180px] truncate" title={n}>
+                    {n}
+                  </li>
+                ))}
+              </ol>
+            );
+          },
+        },
         {
           key: "_email_status",
           header: "Email Status",
@@ -139,12 +179,12 @@ export default function ShopOwnersPage() {
       customActions={(row) => (
         <>
           <Button asChild size="icon" variant="ghost" className="h-8 w-8" aria-label="View">
-            <Link href={`/master/shop-owners/${row.id}`}>
+            <Link href={`/master/shop-owners/view/?id=${row.id}`}>
               <Eye className="h-4 w-4" />
             </Link>
           </Button>
           <Button asChild size="icon" variant="ghost" className="h-8 w-8" aria-label="Edit">
-            <Link href={`/master/shop-owners/${row.id}/edit`}>
+            <Link href={`/master/shop-owners/edit/?id=${row.id}`}>
               <Pencil className="h-4 w-4" />
             </Link>
           </Button>

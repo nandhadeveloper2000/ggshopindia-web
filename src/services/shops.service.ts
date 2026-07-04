@@ -131,6 +131,9 @@ interface ShopWritePayload extends Partial<Shop> {
   street?: string;
   addressLine?: string;
   parentShopId?: string;
+  /** Login credentials for THIS location's own account (mobile + password/PIN). */
+  password?: string;
+  pin?: string;
 }
 
 function blank(v: string | undefined | null): string | undefined {
@@ -173,6 +176,9 @@ function toBackendPayload(payload: ShopWritePayload) {
         udyamCertificateUrl: blank(payload.udyamCertificateUrl),
       },
     },
+    // Location login credentials — hashed onto this location's own User account.
+    password: blank(payload.password),
+    pin: blank(payload.pin),
   };
 }
 
@@ -188,6 +194,14 @@ export const shopsService = {
   get: async (id: ID): Promise<Shop> => {
     const env = await apiRequest<ApiEnvelope<BackendShopResponse>>({ url: `/shops/${id}` });
     return mapShop(env.data);
+  },
+
+  /** All shops for one owner — the endpoint a SHOP_OWNER is authorised to call. */
+  getByOwner: async (ownerId: ID): Promise<Shop[]> => {
+    const env = await apiRequest<ApiEnvelope<BackendShopResponse[]>>({
+      url: `/shops/owner/${ownerId}`,
+    });
+    return (env.data ?? []).map(mapShop);
   },
 
   create: async (payload: ShopWritePayload): Promise<Shop> => {

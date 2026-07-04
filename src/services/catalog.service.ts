@@ -1,4 +1,4 @@
-import { apiRequest } from "./_helpers";
+import { apiRequest, fetchAllPages } from "./_helpers";
 import type {
   Brand,
   Category,
@@ -41,12 +41,15 @@ function normalize<T extends ResourceWithActive>(item: T): T {
 function makeCatalogService<T extends ResourceWithActive>(base: string) {
   return {
     list: async (): Promise<T[]> => {
-      const env = await apiRequest<ApiEnvelope<PageEnvelope<T> | T[]>>({
-        url: base,
-        params: { size: 200 },
+      const rows = await fetchAllPages<T>(async (page, size) => {
+        const env = await apiRequest<ApiEnvelope<PageEnvelope<T> | T[]>>({
+          url: base,
+          params: { page, size },
+        });
+        const data = env.data;
+        // A few endpoints return a bare array instead of a page envelope.
+        return Array.isArray(data) ? { content: data, last: true } : data;
       });
-      const data = env.data;
-      const rows = Array.isArray(data) ? data : data.content ?? [];
       return rows.map(normalize);
     },
 

@@ -6,7 +6,17 @@ export const STORAGE_KEYS = {
   refreshToken: "si_refresh_token",
   user: "si_user",
   shopId: "si_shop_id",
+  /**
+   * Marks the current session as a self-contained customer demo (mobile + OTP
+   * / signup with a fixed demo OTP). When present, the axios layer must not
+   * force-logout on a 401 from authed storefront endpoints, so the demo shopper
+   * can browse even when the backend is unavailable or rejects the demo token.
+   */
+  demo: "si_demo",
 } as const;
+
+/** Fixed OTP accepted by the customer demo login/signup flow. */
+export const DEMO_OTP = process.env.NEXT_PUBLIC_DEMO_OTP ?? "123456";
 
 /**
  * Cookie names mirrored from the session so that `middleware.ts` (which cannot

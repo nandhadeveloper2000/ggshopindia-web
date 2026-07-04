@@ -1,7 +1,8 @@
 import type { ID } from "./common.types";
 
 export type ProductApprovalStatus = "PENDING" | "APPROVED" | "REJECTED";
-export type PricingType = "FIXED" | "MRP" | "DYNAMIC";
+// Matches backend enum com.qmatrix.stockinventory.common.enums.PricingType
+export type PricingType = "SINGLE" | "BULK";
 
 export interface ProductVariant {
   id?: ID;
@@ -37,6 +38,8 @@ export interface Product {
   compatibleBrands?: ID[];
   compatibleModels?: ID[];
   variants?: ProductVariant[];
+  /** Raw variation-builder payload ({ types, values, rows }) round-tripped for editing. */
+  variant?: unknown;
   productInformation?: ProductInformationField[];
   dynamicFields?: Record<string, string>;
   approvalStatus: ProductApprovalStatus;

@@ -35,6 +35,8 @@ interface Props<T extends CrudRecord> {
   onToggleStatus?: (record: T) => Promise<void> | void;
   showStatus?: boolean;
   customActions?: (row: T) => ReactNode;
+  /** Extra buttons rendered in the page header, between Refresh and Add New (e.g. Excel import/export). */
+  headerActions?: ReactNode;
   /** If set, the "Add New" button navigates to this route instead of opening the modal. */
   addHref?: string;
   /** Override the default refresh behavior (which invalidates all active queries). */
@@ -60,6 +62,7 @@ export function CrudManagementPage<T extends CrudRecord>({
   onToggleStatus,
   showStatus = true,
   customActions,
+  headerActions,
   addHref,
   onRefresh,
   refreshing,
@@ -162,6 +165,7 @@ export function CrudManagementPage<T extends CrudRecord>({
                 Refresh
               </Button>
             )}
+            {headerActions}
             {addHref ? (
               <Button asChild className="gap-2">
                 <Link href={addHref}>

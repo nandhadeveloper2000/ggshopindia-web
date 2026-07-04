@@ -30,6 +30,7 @@ interface BackendAuthResponse {
   mobile?: string;
   role: string;
   shopId?: string;
+  shopOwnerId?: string;
   customerId?: string;
   isCustomer?: boolean;
 }
@@ -44,6 +45,7 @@ function mapAuth(envelope: ApiEnvelope<BackendAuthResponse>): LoginResponse {
     username: d.username,
     role: d.role,
     shopId: d.shopId,
+    shopOwnerId: d.shopOwnerId,
     customerId: d.customerId,
   };
   return {

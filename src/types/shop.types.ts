@@ -50,6 +50,9 @@ export interface ShopOwnerPayload {
   pan?: string;
   profileImageUrl?: string;
   address?: Record<string, unknown>;
+  /** Login credentials for the owner's User account. Required on create. */
+  password?: string;
+  pin?: string;
 }
 
 export interface ShopAddress {

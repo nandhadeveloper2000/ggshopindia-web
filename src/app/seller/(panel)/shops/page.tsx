@@ -6,6 +6,7 @@ import { CrudManagementPage, InfoRow } from "@/components/common/CrudManagementP
 import { GenericForm } from "@/components/forms/GenericForm";
 import { shopsService } from "@/services/shops.service";
 import { INDIAN_STATES } from "@/lib/constants";
+import { useAuthStore } from "@/store/auth.store";
 import type { Shop } from "@/types/shop.types";
 
 const schema = z.object({
@@ -27,13 +28,29 @@ type Values = z.infer<typeof schema>;
 
 export default function MyShopsPage() {
   const qc = useQueryClient();
-  const { data = [] } = useQuery({ queryKey: ["shops"], queryFn: shopsService.list });
-  const invalidate = () => qc.invalidateQueries({ queryKey: ["shops"] });
+  const user = useAuthStore((s) => s.user);
+  // A Business Location login (shopId set) sees only its own shop; a Shop Owner
+  // sees all shops under their owner account; admins fall back to the full list.
+  const isLocationUser = Boolean(user?.shopId);
+  const { data = [] } = useQuery({
+    queryKey: ["seller-shops", user?.shopId ?? null, user?.shopOwnerId ?? null],
+    enabled: Boolean(user),
+    queryFn: async () => {
+      if (user?.shopId) return [await shopsService.get(String(user.shopId))];
+      if (user?.shopOwnerId) return shopsService.getByOwner(String(user.shopOwnerId));
+      return shopsService.list();
+    },
+  });
+  const invalidate = () => qc.invalidateQueries({ queryKey: ["seller-shops"] });
 
   return (
     <CrudManagementPage<Shop>
-      title="My Shops"
-      description="Manage your shops, business type, and billing settings."
+      title={isLocationUser ? "My Business Location" : "My Shops"}
+      description={
+        isLocationUser
+          ? "You are signed in to this business location. Only this location is shown."
+          : "Manage your shops, business type, and billing settings."
+      }
       rows={data}
       searchKeys={["shopName", "shopCode", "state"]}
       columns={[
@@ -45,7 +62,7 @@ export default function MyShopsPage() {
         { key: "state", header: "State" },
       ]}
       formTitle="Shop"
-      formContent={(record, close) => (
+      formContent={isLocationUser ? undefined : (record, close) => (
         <GenericForm<Values>
           schema={schema}
           defaultValues={{
@@ -116,14 +133,22 @@ export default function MyShopsPage() {
           <InfoRow label="Billing" value={r.billingEnabled ? "Enabled" : "Disabled"} />
         </>
       )}
-      onDelete={async (r) => {
-        await shopsService.remove(r.id);
-        invalidate();
-      }}
-      onToggleStatus={async (r) => {
-        await shopsService.toggleStatus(r.id, !r.isActive);
-        invalidate();
-      }}
+      onDelete={
+        isLocationUser
+          ? undefined
+          : async (r) => {
+              await shopsService.remove(r.id);
+              invalidate();
+            }
+      }
+      onToggleStatus={
+        isLocationUser
+          ? undefined
+          : async (r) => {
+              await shopsService.toggleStatus(r.id, !r.isActive);
+              invalidate();
+            }
+      }
     />
   );
 }

@@ -26,3 +26,16 @@ export const pinLoginSchema = z.object({
 export const forgotPasswordSchema = z.object({
   identifier: z.string().min(3, "Enter email or mobile"),
 });
+
+// --- Customer mobile-OTP / signup (Flipkart-style) ---------------------------
+export const customerMobileSchema = z.object({
+  mobile: mobileSchema,
+});
+export type CustomerMobileSchema = z.infer<typeof customerMobileSchema>;
+
+export const customerSignupSchema = z.object({
+  name: z.string().trim().min(2, "Enter your name"),
+  mobile: mobileSchema,
+  email: z.union([emailSchema, z.literal("")]).optional(),
+});
+export type CustomerSignupSchema = z.infer<typeof customerSignupSchema>;

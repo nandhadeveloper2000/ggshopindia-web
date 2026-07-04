@@ -77,7 +77,7 @@ export function getRoleHome(role: UserRoleType | string | undefined): string {
     case UserRole.EMPLOYEE:
       return "/shop-staff/dashboard";
     case UserRole.CUSTOMER:
-      return "/customer/home";
+      return "/";
     case UserRole.VENDOR:
       return "/vendor/dashboard";
     default:
