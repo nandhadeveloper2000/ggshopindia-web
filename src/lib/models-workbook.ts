@@ -4,13 +4,14 @@
  * Export writes one sheet per brand (each tab named after the brand) containing
  * that brand's existing models plus a ready-to-fill row — so the download
  * doubles as a bulk-upload sheet with the old data included. Import reads every
- * sheet and forward-fills Category/Brand down blank rows, so the user only needs
- * to type model names beneath the pre-filled row.
+ * sheet and forward-fills Category/Product Type/Brand down blank rows, so the
+ * user only needs to type model names beneath the pre-filled row.
  */
 
 /** One model row as it appears in the workbook (all human-readable names). */
 export interface ModelWorkbookRow {
   category: string;
+  productType: string;
   brand: string;
   name: string;
   modelNumber: string;
@@ -23,11 +24,12 @@ export interface ModelSheet {
   rows: ModelWorkbookRow[];
 }
 
-const HEADERS = ["Category", "Brand", "Model", "Model Number", "Status"] as const;
+const HEADERS = ["Category", "Product Type", "Brand", "Model", "Model Number", "Status"] as const;
 
 // Shown when a sheet has no rows, so the file still works as a template.
 const SAMPLE_ROW: ModelWorkbookRow = {
   category: "Mobiles",
+  productType: "Smartphone",
   brand: "Samsung",
   name: "Galaxy S26",
   modelNumber: "SAM-GALAXY-XXXX",
@@ -55,6 +57,7 @@ function toSheetData(rows: ModelWorkbookRow[]) {
   const source = rows.length > 0 ? rows : [SAMPLE_ROW];
   return source.map((r) => ({
     Category: r.category,
+    "Product Type": r.productType,
     Brand: r.brand,
     Model: r.name,
     "Model Number": r.modelNumber,
@@ -87,7 +90,7 @@ export async function exportModelsWorkbook(
 
   for (const s of safeSheets) {
     const ws = XLSX.utils.json_to_sheet(toSheetData(s.rows), { header: HEADERS as unknown as string[] });
-    ws["!cols"] = [{ wch: 22 }, { wch: 18 }, { wch: 28 }, { wch: 22 }, { wch: 12 }];
+    ws["!cols"] = [{ wch: 22 }, { wch: 22 }, { wch: 18 }, { wch: 28 }, { wch: 22 }, { wch: 12 }];
     XLSX.utils.book_append_sheet(wb, ws, nameFor(s.sheetName || "Models"));
   }
 
@@ -109,15 +112,18 @@ export async function parseModelsWorkbook(file: File): Promise<ModelWorkbookRow[
     const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[sheetName], {
       defval: "",
     });
-    // Forward-fill Category/Brand: once set, the value carries down to later rows
-    // that leave those cells blank. So a template with a single pre-filled row
-    // lets the user just type model names beneath it and upload.
+    // Forward-fill Category/Product Type/Brand: once set, the value carries down
+    // to later rows that leave those cells blank. So a template with a single
+    // pre-filled row lets the user just type model names beneath it and upload.
     let lastCategory = "";
+    let lastProductType = "";
     let lastBrand = "";
     for (const row of rows) {
       const rowCategory = cell(row, "Category", "Category Name");
+      const rowProductType = cell(row, "Product Type", "ProductType", "Type");
       const rowBrand = cell(row, "Brand", "Brand Name");
       if (rowCategory) lastCategory = rowCategory;
+      if (rowProductType) lastProductType = rowProductType;
       if (rowBrand) lastBrand = rowBrand;
 
       const name = cell(row, "Model", "Model Name", "Name");
@@ -126,6 +132,7 @@ export async function parseModelsWorkbook(file: File): Promise<ModelWorkbookRow[
       const status = cell(row, "Status", "Active");
       out.push({
         category: lastCategory,
+        productType: lastProductType,
         brand: lastBrand,
         name,
         modelNumber: cell(row, "Model Number", "ModelNumber", "Number", "SKU"),

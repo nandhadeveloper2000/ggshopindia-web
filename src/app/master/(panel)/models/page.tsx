@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/select";
 import { CrudManagementPage, InfoRow } from "@/components/common/CrudManagementPage";
 import { ModelForm } from "@/components/catalog/ModelForm";
-import { brandsService, categoriesService, modelsService } from "@/services/catalog.service";
+import { brandsService, categoriesService, modelsService, productTypesService } from "@/services/catalog.service";
 import { categoryBrandsService } from "@/services/category-brands.service";
 import {
   exportModelsWorkbook,
@@ -29,6 +29,7 @@ export default function ModelsPage() {
   const qc = useQueryClient();
   const { data = [] } = useQuery({ queryKey: ["models"], queryFn: modelsService.list });
   const { data: categories = [] } = useQuery({ queryKey: ["categories"], queryFn: categoriesService.list });
+  const { data: productTypes = [] } = useQuery({ queryKey: ["product-types"], queryFn: productTypesService.list });
   const { data: brands = [] } = useQuery({ queryKey: ["brands"], queryFn: brandsService.list });
   const invalidate = () => qc.invalidateQueries({ queryKey: ["models"] });
 
@@ -45,10 +46,27 @@ export default function ModelsPage() {
     enabled: downloadCategoryId !== "all",
   });
 
-  const categoryName = useMemo(() => {
-    const map = new Map(categories.map((c) => [String(c.id), c.name]));
-    return (id?: ProductModel["categoryId"]) => (id != null ? map.get(String(id)) ?? "—" : "—");
-  }, [categories]);
+  // Models now key off a product type. Resolve its name for display, and its
+  // parent category (for the download filter and Excel grouping).
+  const productTypeById = useMemo(
+    () => new Map(productTypes.map((p) => [String(p.id), p])),
+    [productTypes]
+  );
+  const productTypeName = (id?: ProductModel["productTypeId"]) =>
+    id != null ? productTypeById.get(String(id))?.name ?? "—" : "—";
+
+  const categoryNameById = useMemo(
+    () => new Map(categories.map((c) => [String(c.id), c.name])),
+    [categories]
+  );
+  const categoryIdOf = (r: ProductModel) => {
+    const pt = r.productTypeId != null ? productTypeById.get(String(r.productTypeId)) : undefined;
+    return pt?.categoryId != null ? String(pt.categoryId) : undefined;
+  };
+  const categoryNameOf = (r: ProductModel) => {
+    const cid = categoryIdOf(r);
+    return cid ? categoryNameById.get(cid) ?? "—" : "—";
+  };
 
   const brandName = useMemo(() => {
     const map = new Map(brands.map((b) => [String(b.id), b.name]));
@@ -86,6 +104,21 @@ export default function ModelsPage() {
     brands.forEach((b) => m.set(b.name.trim().toLowerCase(), String(b.id)));
     return m;
   }, [brands]);
+  // Product-type names can repeat across categories, so prefer a
+  // category-qualified match and fall back to a plain name match.
+  const productTypeIdByCatName = useMemo(() => {
+    const m = new Map<string, string>();
+    productTypes.forEach((p) => {
+      if (p.categoryId != null)
+        m.set(`${String(p.categoryId)}::${p.name.trim().toLowerCase()}`, String(p.id));
+    });
+    return m;
+  }, [productTypes]);
+  const productTypeIdByName = useMemo(() => {
+    const m = new Map<string, string>();
+    productTypes.forEach((p) => m.set(p.name.trim().toLowerCase(), String(p.id)));
+    return m;
+  }, [productTypes]);
 
   // Download one sheet per brand — each tab holds that brand's existing models
   // (old data) plus a pre-filled row, so it doubles as a bulk-add sheet. With a
@@ -110,22 +143,24 @@ export default function ModelsPage() {
 
     const sheets: ModelSheet[] = sheetBrands.map((b) => {
       const models = data.filter((r) => {
-        if (catSelected && String(r.categoryId) !== downloadCategoryId) return false;
+        if (catSelected && categoryIdOf(r) !== downloadCategoryId) return false;
         return String(r.brandId) === b.id;
       });
       const rows: ModelWorkbookRow[] =
         models.length > 0
           ? models.map((r) => {
-              const cat = categoryName(r.categoryId);
+              const cat = categoryNameOf(r);
+              const pt = productTypeName(r.productTypeId);
               return {
                 category: cat === "—" ? catLabel : cat,
+                productType: pt === "—" ? "" : pt,
                 brand: b.name,
                 name: r.name,
                 modelNumber: r.modelNumber ?? "",
                 active: r.isActive ?? true,
               };
             })
-          : [{ category: catLabel, brand: b.name, name: "", modelNumber: "", active: true }];
+          : [{ category: catLabel, productType: "", brand: b.name, name: "", modelNumber: "", active: true }];
       return { sheetName: b.name, rows };
     });
 
@@ -158,6 +193,11 @@ export default function ModelsPage() {
       for (const row of parsed) {
         const brandId = brandIdByName.get(row.brand.trim().toLowerCase());
         const categoryId = row.category ? categoryIdByName.get(row.category.trim().toLowerCase()) : undefined;
+        const ptKey = row.productType.trim().toLowerCase();
+        const productTypeId = ptKey
+          ? (categoryId ? productTypeIdByCatName.get(`${categoryId}::${ptKey}`) : undefined) ??
+            productTypeIdByName.get(ptKey)
+          : undefined;
 
         if (!row.brand) {
           errors.push(`"${row.name}": brand is required`);
@@ -171,13 +211,17 @@ export default function ModelsPage() {
           errors.push(`"${row.name}": unknown category "${row.category}"`);
           continue;
         }
+        if (row.productType && !productTypeId) {
+          errors.push(`"${row.name}": unknown product type "${row.productType}"`);
+          continue;
+        }
         if (existing.has(existsKey(brandId, row.name))) {
           skippedExisting += 1;
           continue;
         }
         try {
           await modelsService.create({
-            categoryId,
+            productTypeId,
             brandId,
             name: row.name,
             modelNumber: row.modelNumber || undefined,
@@ -213,7 +257,7 @@ export default function ModelsPage() {
   return (
     <CrudManagementPage<ProductModel>
       title="Models"
-      description="Select a category, pick a mapped brand, then add the model name and number."
+      description="Select a category, pick a product type and a mapped brand, then add the model name and number."
       rows={data}
       searchKeys={["name", "brandName", "modelNumber"]}
       headerActions={
@@ -273,7 +317,7 @@ export default function ModelsPage() {
       }
       columns={[
         { key: "name", header: "Model", render: (r) => <span className="font-medium">{r.name}</span> },
-        { key: "categoryId", header: "Category", render: (r) => categoryName(r.categoryId) },
+        { key: "productTypeId", header: "Product Type", render: (r) => productTypeName(r.productTypeId) },
         { key: "brandName", header: "Brand", render: (r) => brandName(r) },
         { key: "modelNumber", header: "Model Number" },
       ]}
@@ -282,7 +326,8 @@ export default function ModelsPage() {
       viewContent={(r) => (
         <>
           <InfoRow label="Name" value={r.name} />
-          <InfoRow label="Category" value={categoryName(r.categoryId)} />
+          <InfoRow label="Product Type" value={productTypeName(r.productTypeId)} />
+          <InfoRow label="Category" value={categoryNameOf(r)} />
           <InfoRow label="Brand" value={brandName(r)} />
           <InfoRow label="Model Number" value={r.modelNumber} />
         </>

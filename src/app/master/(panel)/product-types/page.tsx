@@ -11,6 +11,7 @@ import type { ProductType } from "@/types/catalog.types";
 const schema = z.object({
   subCategoryId: z.string().min(1, "Sub category is required"),
   name: z.string().min(2),
+  imageUrl: z.string().optional(),
   isActive: z.boolean().optional(),
 });
 type Values = z.infer<typeof schema>;
@@ -36,6 +37,18 @@ export default function ProductTypesPage() {
       rows={data}
       searchKeys={["name"]}
       columns={[
+        {
+          key: "imageUrl",
+          header: "Image",
+          className: "w-16",
+          render: (r) =>
+            r.imageUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={r.imageUrl} alt={r.name} className="h-10 w-10 rounded object-cover" />
+            ) : (
+              <div className="h-10 w-10 rounded bg-muted" />
+            ),
+        },
         { key: "name", header: "Name", render: (r) => <span className="font-medium">{r.name}</span> },
         { key: "subCategoryId", header: "Sub Category", render: (r) => subCategoryLabel(r.subCategoryId) },
       ]}
@@ -51,6 +64,7 @@ export default function ProductTypesPage() {
                 ? String(subCategories[0].id)
                 : "",
             name: record?.name ?? "",
+            imageUrl: record?.imageUrl ?? "",
             isActive: record?.isActive ?? true,
           }}
           fields={[
@@ -61,6 +75,13 @@ export default function ProductTypesPage() {
               options: subCategories.map((s) => ({ label: s.name, value: String(s.id) })),
             },
             { name: "name", label: "Name" },
+            {
+              name: "imageUrl",
+              label: "Image",
+              type: "image",
+              uploadFolder: "catalog/product-types",
+              colSpan: 2,
+            },
             { name: "isActive", label: "Active", type: "switch" },
           ]}
           onSubmit={async (values) => {
@@ -73,6 +94,10 @@ export default function ProductTypesPage() {
       )}
       viewContent={(r) => (
         <>
+          {r.imageUrl && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={r.imageUrl} alt={r.name} className="mb-2 h-24 w-24 rounded object-cover" />
+          )}
           <InfoRow label="Name" value={r.name} />
           <InfoRow label="Sub Category" value={subCategoryLabel(r.subCategoryId)} />
         </>

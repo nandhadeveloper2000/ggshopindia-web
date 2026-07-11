@@ -15,7 +15,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { categoriesService, modelsService } from "@/services/catalog.service";
+import {
+  categoriesService,
+  modelsService,
+  productTypesService,
+  subCategoriesService,
+} from "@/services/catalog.service";
 import { categoryBrandsService } from "@/services/category-brands.service";
 import type { ProductModel } from "@/types/catalog.types";
 
@@ -39,19 +44,62 @@ function generateModelNumber(brandName?: string, modelName?: string, suffix?: st
 
 export function ModelForm({ record, onSaved, close }: Props) {
   const { data: categories = [] } = useQuery({ queryKey: ["categories"], queryFn: categoriesService.list });
+  const { data: subCategories = [] } = useQuery({ queryKey: ["sub-categories"], queryFn: subCategoriesService.list });
+  const { data: productTypes = [] } = useQuery({ queryKey: ["product-types"], queryFn: productTypesService.list });
 
-  const [categoryId, setCategoryId] = useState(record?.categoryId != null ? String(record.categoryId) : "");
+  // Category + Sub Category are only filters here (to narrow product types +
+  // mapped brands); the model stores the chosen product type, not those.
+  const [categoryId, setCategoryId] = useState("");
+  const [subCategoryId, setSubCategoryId] = useState("");
+  const [productTypeId, setProductTypeId] = useState(
+    record?.productTypeId != null ? String(record.productTypeId) : ""
+  );
   const [brandId, setBrandId] = useState(record?.brandId != null ? String(record.brandId) : "");
   const [name, setName] = useState(record?.name ?? "");
   const [modelNumber, setModelNumber] = useState(record?.modelNumber ?? "");
   const [active, setActive] = useState(record?.isActive ?? true);
   const [saving, setSaving] = useState(false);
 
-  // Brands available for the chosen category come from the Category-Brand mapping.
+  // When editing, derive category + sub category from the model's product type
+  // so the cascade preselects correctly. Runs once product types load.
+  useEffect(() => {
+    if (!record?.productTypeId || categoryId) return;
+    const pt = productTypes.find((p) => String(p.id) === String(record.productTypeId));
+    if (pt?.categoryId != null) setCategoryId(String(pt.categoryId));
+    if (pt?.subCategoryId != null) setSubCategoryId(String(pt.subCategoryId));
+  }, [record, productTypes, categoryId]);
+
+  // Sub categories under the chosen category (active), plus the currently-selected
+  // one even if inactive, so editing a model keeps its saved value visible/selectable.
+  const subCategoryOptions = useMemo(() => {
+    const opts = subCategories
+      .filter((s) => categoryId && String(s.categoryId) === categoryId && s.isActive !== false)
+      .map((s) => ({ id: String(s.id), name: s.name }));
+    if (subCategoryId && !opts.some((o) => o.id === subCategoryId)) {
+      const cur = subCategories.find((s) => String(s.id) === subCategoryId);
+      if (cur) opts.push({ id: String(cur.id), name: cur.name });
+    }
+    return opts;
+  }, [subCategories, categoryId, subCategoryId]);
+
+  // Product types under the chosen sub category (active), plus the currently-selected
+  // one even if inactive (a model may reference a now-inactive product type).
+  const productTypeOptions = useMemo(() => {
+    const opts = productTypes
+      .filter((p) => subCategoryId && String(p.subCategoryId) === subCategoryId && p.isActive !== false)
+      .map((p) => ({ id: String(p.id), name: p.name }));
+    if (productTypeId && !opts.some((o) => o.id === productTypeId)) {
+      const cur = productTypes.find((p) => String(p.id) === productTypeId);
+      if (cur) opts.push({ id: String(cur.id), name: cur.name });
+    }
+    return opts;
+  }, [productTypes, subCategoryId, productTypeId]);
+
+  // Brands available come from the Product-Type → Brand mapping.
   const { data: mappings = [], isFetching: loadingBrands } = useQuery({
-    queryKey: ["cb-brands", categoryId],
-    queryFn: () => categoryBrandsService.list(categoryId),
-    enabled: !!categoryId,
+    queryKey: ["ptb-brands", productTypeId],
+    queryFn: () => categoryBrandsService.listByProductType(productTypeId),
+    enabled: !!productTypeId,
   });
   const brandOptions = useMemo(
     () => mappings.map((m) => ({ id: String(m.brandId), name: m.brandName ?? String(m.brandId) })),
@@ -81,12 +129,14 @@ export function ModelForm({ record, onSaved, close }: Props) {
 
   const save = async () => {
     if (!categoryId) return toast.error("Select a category");
+    if (!subCategoryId) return toast.error("Select a sub category");
+    if (!productTypeId) return toast.error("Select a product type");
     if (!brandId) return toast.error("Select a brand");
     if (name.trim().length < 2) return toast.error("Enter a model name");
     setSaving(true);
     try {
       const payload: Partial<ProductModel> = {
-        categoryId,
+        productTypeId,
         brandId,
         name: name.trim(),
         modelNumber: modelNumber.trim() || undefined,
@@ -113,6 +163,8 @@ export function ModelForm({ record, onSaved, close }: Props) {
             value={categoryId}
             onValueChange={(v) => {
               setCategoryId(v);
+              setSubCategoryId(""); // sub categories depend on category — reset on change
+              setProductTypeId("");
               setBrandId("");
             }}
           >
@@ -129,13 +181,79 @@ export function ModelForm({ record, onSaved, close }: Props) {
           </Select>
         </div>
         <div className="space-y-1.5">
-          <Label>Brand</Label>
-          <Select value={brandId} onValueChange={setBrandId} disabled={!categoryId || brandOptions.length === 0}>
+          <Label>Sub Category</Label>
+          <Select
+            value={subCategoryId}
+            onValueChange={(v) => {
+              setSubCategoryId(v);
+              setProductTypeId(""); // product types depend on sub category — reset on change
+              setBrandId("");
+            }}
+            disabled={!categoryId || subCategoryOptions.length === 0}
+          >
             <SelectTrigger>
               <SelectValue
                 placeholder={
                   !categoryId
                     ? "Select category first"
+                    : subCategoryOptions.length === 0
+                    ? "No sub categories"
+                    : "Select sub category"
+                }
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {subCategoryOptions.map((s) => (
+                <SelectItem key={s.id} value={s.id}>
+                  {s.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1.5">
+          <Label>Product Type</Label>
+          <Select
+            value={productTypeId}
+            onValueChange={(v) => {
+              setProductTypeId(v);
+              setBrandId(""); // brands depend on product type — reset on change
+            }}
+            disabled={!subCategoryId || productTypeOptions.length === 0}
+          >
+            <SelectTrigger>
+              <SelectValue
+                placeholder={
+                  !subCategoryId
+                    ? "Select sub category first"
+                    : productTypeOptions.length === 0
+                    ? "No product types"
+                    : "Select product type"
+                }
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {productTypeOptions.map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                  {p.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {subCategoryId && productTypeOptions.length === 0 && (
+            <p className="text-xs text-muted-foreground">
+              No product types in this sub category. Add them in “Product Types”.
+            </p>
+          )}
+        </div>
+        <div className="space-y-1.5">
+          <Label>Brand</Label>
+          <Select value={brandId} onValueChange={setBrandId} disabled={!productTypeId || brandOptions.length === 0}>
+            <SelectTrigger>
+              <SelectValue
+                placeholder={
+                  !productTypeId
+                    ? "Select product type first"
                     : loadingBrands
                     ? "Loading brands…"
                     : brandOptions.length === 0
@@ -152,9 +270,9 @@ export function ModelForm({ record, onSaved, close }: Props) {
               ))}
             </SelectContent>
           </Select>
-          {categoryId && !loadingBrands && brandOptions.length === 0 && (
+          {productTypeId && !loadingBrands && brandOptions.length === 0 && (
             <p className="text-xs text-muted-foreground">
-              No brands mapped to this category. Add them in “Brand Mapping”.
+              No brands mapped to this product type. Add them in “Brand Mapping”.
             </p>
           )}
         </div>

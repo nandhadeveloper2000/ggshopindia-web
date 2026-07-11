@@ -25,15 +25,18 @@ export interface Brand {
 
 export interface ProductType {
   id: ID;
+  categoryId?: ID;
+  categoryName?: string;
   subCategoryId?: ID;
   subCategoryName?: string;
   name: string;
+  imageUrl?: string;
   isActive: boolean;
 }
 
 export interface ProductModel {
   id: ID;
-  categoryId?: ID;
+  productTypeId?: ID;
   brandId: ID;
   brandName?: string;
   name: string;
@@ -41,10 +44,19 @@ export interface ProductModel {
   isActive: boolean;
 }
 
+/**
+ * A brand mapping row. Brands are now mapped at the Product Type level
+ * (Category → Sub Category → Product Type → Brand); category_id / sub_category_id
+ * are denormalized so brands can still be listed for a whole category.
+ */
 export interface CategoryBrand {
   id: ID;
   categoryId: ID;
   categoryName?: string;
+  subCategoryId?: ID;
+  subCategoryName?: string;
+  productTypeId?: ID;
+  productTypeName?: string;
   brandId: ID;
   brandName?: string;
   brandLogoUrl?: string;
