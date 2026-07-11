@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { shopProductsService } from "@/services/shopProducts.service";
 import { productsService } from "@/services/products.service";
+import { attributeTemplatesService } from "@/services/attribute-templates.service";
 import { useAddToCart } from "@/hooks/useAddToCart";
 import { useLocationStore } from "@/store/location.store";
 import { searchOsm } from "@/lib/osm";
@@ -81,6 +82,18 @@ export default function ProductDetailsClient({ id }: { id: string }) {
   const { addToCart, buyNow } = useAddToCart();
 
   const product = useQuery({ queryKey: ["product", id], queryFn: () => productsService.get(id), enabled });
+  // The product's attribute template drives the spec sections (per product type).
+  const templateQuery = useQuery({
+    queryKey: ["attr-template", product.data?.categoryId, product.data?.subCategoryId, product.data?.productTypeId],
+    queryFn: () =>
+      attributeTemplatesService.getBySelection(
+        product.data!.categoryId!,
+        product.data!.subCategoryId!,
+        product.data!.productTypeId!,
+      ),
+    enabled: Boolean(product.data?.categoryId && product.data?.subCategoryId && product.data?.productTypeId),
+    retry: false,
+  });
   const sellersQuery = useQuery({
     queryKey: ["product-sellers", id],
     queryFn: () => shopProductsService.sellersForProduct(id),
@@ -331,7 +344,11 @@ export default function ProductDetailsClient({ id }: { id: string }) {
       </div>
 
       {/* Full spec sheet: Apple-style expandable details + image, tabbed */}
-      <ProductSpecs product={product.data} image={current.images?.[0] ?? product.data.images?.[0]} />
+      <ProductSpecs
+        product={product.data}
+        image={current.images?.[0] ?? product.data.images?.[0]}
+        template={templateQuery.data}
+      />
 
       <SellersDialog
         open={sellersOpen}

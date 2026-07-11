@@ -5,6 +5,7 @@ import { MinusCircle, PlusCircle } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
 import type { Product } from "@/types/product.types";
+import type { AttributeTemplate, TemplateGroup } from "@/types/attribute-template.types";
 
 interface SpecRow {
   label: string;
@@ -193,6 +194,77 @@ function buildSections(product: Product): {
   };
 }
 
+/**
+ * Build the tabbed spec sections from the product's own attribute template, so
+ * every product type is organised like its template (Product-Details groups →
+ * accordion sections; Warranty / Manufacturer Info tabs) instead of a hardcoded
+ * smartphone layout. Image/variation sections and file fields are skipped, and
+ * repeated field keys are de-duplicated.
+ */
+function buildSectionsFromTemplate(
+  product: Product,
+  template: AttributeTemplate,
+): { details: Section[]; warranty: Section[]; manufacturer: Section[] } {
+  const df = product.dynamicFields ?? {};
+  const get = (key: string) => (df[key] ?? "").toString().trim();
+
+  const rowsFor = (group: TemplateGroup): SpecRow[] => {
+    const seen = new Set<string>();
+    const out: SpecRow[] = [];
+    for (const f of group.fields ?? []) {
+      if (f.active === false || !f.key || seen.has(f.key)) continue;
+      seen.add(f.key);
+      const value = cleanValue(f.label ?? "", get(f.key));
+      if (!value || f.inputType === "file" || isImageField(f.key, value)) continue;
+      out.push({ label: (f.label || humanize(f.key)).trim(), value });
+    }
+    return out;
+  };
+
+  const sections = (template.sections ?? []).filter((s) => s.active !== false);
+  const is = (re: RegExp) => (s: { headingName: string }) => re.test(s.headingName ?? "");
+  const isImages = is(/image/i);
+  const isVariations = is(/variation/i);
+  const isWarranty = is(/warrant/i);
+  const isManufacturer = is(/manufact/i);
+
+  // Product Details tab: every section that isn't images/variations/warranty/manufacturer.
+  const details: Section[] = [];
+  const desc = get("description");
+  if (desc) details.push({ title: "Description", text: desc });
+
+  for (const s of sections.filter(
+    (s) => !isImages(s) && !isVariations(s) && !isWarranty(s) && !isManufacturer(s),
+  )) {
+    for (const g of (s.groups ?? []).filter((g) => g.active !== false)) {
+      const rows = rowsFor(g).filter((r) => r.label.toLowerCase() !== "description");
+      if (rows.length) details.push({ title: g.groupName?.trim() || s.headingName, rows });
+    }
+  }
+
+  const infoRows = (product.productInformation ?? [])
+    .filter((f) => f.label?.trim() && f.value?.trim())
+    .map((f) => ({ label: f.label.trim(), value: f.value.trim() }));
+  if (infoRows.length) details.push({ title: "Additional Information", rows: infoRows });
+
+  // Warranty / Manufacturer tabs: flatten each matching section's groups into one
+  // section, de-duplicating by label.
+  const flatten = (match: (s: { headingName: string }) => boolean, title: string): Section[] => {
+    const seen = new Set<string>();
+    const rows = sections
+      .filter(match)
+      .flatMap((s) => (s.groups ?? []).filter((g) => g.active !== false).flatMap(rowsFor))
+      .filter((r) => !seen.has(r.label) && (seen.add(r.label), true));
+    return rows.length ? [{ title, rows }] : [];
+  };
+
+  return {
+    details,
+    warranty: flatten(isWarranty, "Warranty"),
+    manufacturer: flatten(isManufacturer, "Manufacturer Info"),
+  };
+}
+
 /** Apple-style expandable list on the left + a sticky product image on the right. */
 function DetailPanel({ sections, image, alt }: { sections: Section[]; image?: string; alt: string }) {
   // Single-open accordion: opening one section collapses the previously open one
@@ -286,8 +358,18 @@ function DetailPanel({ sections, image, alt }: { sections: Section[]; image?: st
  * Product Details / Warranty / Manufacturer Info tabs. All content is derived
  * from the product's dynamic fields, so tabs with no data are hidden.
  */
-export function ProductSpecs({ product, image }: { product: Product; image?: string }) {
-  const { details, warranty, manufacturer } = buildSections(product);
+export function ProductSpecs({
+  product,
+  image,
+  template,
+}: {
+  product: Product;
+  image?: string;
+  template?: AttributeTemplate | null;
+}) {
+  const { details, warranty, manufacturer } = template?.sections?.length
+    ? buildSectionsFromTemplate(product, template)
+    : buildSections(product);
   const tabs = [
     { key: "details", label: "Product Details", sections: details },
     { key: "warranty", label: "Warranty", sections: warranty },
