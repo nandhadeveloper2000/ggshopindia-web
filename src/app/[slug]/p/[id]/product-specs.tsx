@@ -17,15 +17,17 @@ interface Section {
   rows?: SpecRow[];
 }
 
-/** Fields that hold image URLs (rendered in the gallery, never in the spec tables). */
-const IMAGE_KEYS = new Set([
-  "backimage",
-  "frontimage",
-  "featureimage",
-  "leftsideimage",
-  "rightsideimage",
-  "thumbnailimages",
-]);
+/**
+ * True for dynamic fields that hold an image URL — rendered in the gallery, never
+ * as a spec row. Detected by key name (any *image* field) or an image / Cloudinary
+ * URL value, so templates that declare image fields as plain text (e.g. earbuds:
+ * thumbnailimage, secondimage, …) don't leak URLs into the spec tables.
+ */
+function isImageField(key: string, value: string): boolean {
+  if (/image/i.test(key)) return true;
+  const v = value.trim().toLowerCase();
+  return /res\.cloudinary\.com/.test(v) || /^https?:\/\/\S+\.(png|jpe?g|webp|gif|svg|avif)(\?|#|$)/.test(v);
+}
 
 /** Group definitions for the "Product Details" tab: [display label, dynamic-field key]. */
 const DETAIL_GROUPS: Array<{ title: string; fields: Array<[string, string]> }> = [
@@ -171,7 +173,7 @@ function buildSections(product: Product): {
   // field an admin adds later is surfaced instead of being silently dropped.
   const otherRows = Object.entries(df)
     .filter(([, value]) => value?.toString().trim())
-    .filter(([key]) => !KNOWN_KEYS.has(key) && !IMAGE_KEYS.has(key) && !HIDDEN_KEYS.has(key))
+    .filter(([key, value]) => !KNOWN_KEYS.has(key) && !HIDDEN_KEYS.has(key) && !isImageField(key, value.toString()))
     .map(([key, value]) => ({ label: humanize(key), value: value.toString().trim() }));
   if (otherRows.length) details.push({ title: "Other", rows: otherRows });
 
