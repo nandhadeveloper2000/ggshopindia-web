@@ -119,11 +119,11 @@ function ProductFormInner({
     [productTypes, subCategoryId]
   );
 
-  // Brands mapped to the chosen category, and models for the chosen brand.
+  // Brands mapped to the chosen product type, and models for that product type + brand.
   const { data: brandMappings = [] } = useQuery({
-    queryKey: ["cb-brands", categoryId],
-    queryFn: () => categoryBrandsService.list(categoryId),
-    enabled: Boolean(categoryId),
+    queryKey: ["ptb-brands", productTypeId],
+    queryFn: () => categoryBrandsService.listByProductType(productTypeId),
+    enabled: Boolean(productTypeId),
   });
   const brandOptions = useMemo(
     () => brandMappings.map((m) => ({ label: m.brandName ?? String(m.brandId), value: String(m.brandId) })),
@@ -133,9 +133,9 @@ function ProductFormInner({
   const modelOptions = useMemo(
     () =>
       allModels
-        .filter((m) => String(m.brandId) === brandId)
+        .filter((m) => String(m.brandId) === brandId && String(m.productTypeId) === productTypeId)
         .map((m) => ({ label: m.name, value: String(m.id) })),
-    [allModels, brandId]
+    [allModels, brandId, productTypeId]
   );
   // Model number is a property of the selected model — shown read-only.
   const selectedModelNumber = useMemo(
@@ -271,6 +271,8 @@ function ProductFormInner({
                   setCategoryId(v);
                   setSubCategoryId("");
                   setProductTypeId("");
+                  setBrandId("");
+                  setModelId("");
                 }}
               />
               <SelectField
@@ -282,6 +284,8 @@ function ProductFormInner({
                 onChange={(v) => {
                   setSubCategoryId(v);
                   setProductTypeId("");
+                  setBrandId("");
+                  setModelId("");
                 }}
               />
               <SelectField
@@ -290,11 +294,15 @@ function ProductFormInner({
                 disabled={!subCategoryId}
                 value={productTypeId}
                 options={typeOptions.map((c) => ({ label: c.name, value: String(c.id) }))}
-                onChange={setProductTypeId}
+                onChange={(v) => {
+                  setProductTypeId(v);
+                  setBrandId("");
+                  setModelId("");
+                }}
               />
               <SelectField
                 label="Brand"
-                disabled={!categoryId}
+                disabled={!productTypeId}
                 value={brandId}
                 options={brandOptions}
                 onChange={(v) => {
