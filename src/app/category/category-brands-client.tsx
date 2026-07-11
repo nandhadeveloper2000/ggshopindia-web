@@ -1,10 +1,9 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useMemo } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
-import { toast } from "sonner";
 import { ChevronRight, Package, Store } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { PublicHeader } from "@/components/storefront/PublicHeader";
@@ -97,15 +96,6 @@ export default function CategoryBrandsClient() {
   const activeBrands = typeBrands.filter((b) => b.isActive !== false);
   const selectedBrandName =
     activeBrands.find((b) => String(b.brandId) === selectedBrandId)?.brandName ?? brandNameFromUrl;
-
-  // Animated "alert": toast the brand count once a product type's brands load.
-  useEffect(() => {
-    if (!productTypeId || selectedBrandId || brandsLoading) return;
-    const n = activeBrands.length;
-    toast(`${productTypeName} · ${n} brand${n === 1 ? "" : "s"} available`);
-    // Fire once per product-type selection (when loading flips to done).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [productTypeId, brandsLoading, selectedBrandId]);
 
   // URL builders — preserve the current category (and product type) context.
   const withBase = () => {
