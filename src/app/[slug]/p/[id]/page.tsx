@@ -43,8 +43,15 @@ export async function generateStaticParams(): Promise<ProductParam[]> {
       if (rows.length === 0 || page + 1 >= totalPages) break;
     }
   } catch {
-    // Backend unreachable at build time — emit nothing. Pages still render on
-    // demand under `next dev`; a rebuild with the API up pre-generates them.
+    // Backend unreachable at build time (e.g. CI) — fall through to the
+    // placeholder below so the export build never fails.
+  }
+  // `output: export` requires at least one static param. When no products were
+  // fetched (backend down at build time), emit a placeholder shell — same
+  // approach as the orders route. Real product pages are generated whenever the
+  // API is reachable; deep links to others rely on the SPA fallback / a rebuild.
+  if (out.length === 0) {
+    out.push({ slug: "product", id: "placeholder" });
   }
   return out;
 }
