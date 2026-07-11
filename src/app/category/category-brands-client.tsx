@@ -217,7 +217,7 @@ export default function CategoryBrandsClient() {
                           <img
                             src={brand.brandLogoUrl}
                             alt={brand.brandName ?? "Brand"}
-                            className="h-full w-full object-contain p-3"
+                            className="h-full w-full object-contain p-1.5"
                           />
                         ) : (
                           <span className="text-lg font-semibold text-primary">
